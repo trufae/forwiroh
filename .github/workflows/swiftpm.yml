@@ -1,0 +1,123 @@
+name: SwiftPM binaries
+on:
+  workflow_dispatch:
+    inputs:
+      release_base_url:
+        description: Immutable HTTPS asset directory (optional; prepares remote manifest, does not publish)
+        required: false
+        type: string
+  pull_request:
+    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'scripts/*swift*', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml']
+permissions:
+  contents: read
+concurrency:
+  group: swiftpm-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  apple:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.2'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+      - run: bash scripts/build-swift-core.sh aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+      - run: python3 scripts/package-swift.py
+      - run: swift test
+      - run: swift run --package-path examples/swiftpm Consumer
+      - name: Link Swift consumer for iOS and simulator
+        run: |
+          swift build --package-path examples/swiftpm --triple arm64-apple-ios17.0 --sdk "$(xcrun --sdk iphoneos --show-sdk-path)"
+          swift build --package-path examples/swiftpm --triple arm64-apple-ios17.0-simulator --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libraries-apple
+          path: dist/libraries/
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.2'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.arch }}-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: bash scripts/build-swift-core.sh ${{ matrix.arch }}-unknown-linux-gnu ${{ matrix.arch }}-unknown-linux-musl
+      - run: python3 scripts/package-swift.py
+      - run: swift test
+      - run: swift run --package-path examples/swiftpm Consumer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libraries-linux-${{ matrix.arch }}
+          path: dist/libraries/
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'ndk;28.0.13004108'
+      - run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108" bash scripts/build-swift-core.sh aarch64-linux-android x86_64-linux-android
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.4.1'
+      - name: Install matching Android Swift SDK and NDK
+        run: |
+          swift sdk install https://download.swift.org/swift-6.4.1-release/android-sdk/swift-6.4.1-RELEASE/swift-6.4.1-RELEASE_android.artifactbundle.tar.gz --checksum a356b79f8f1daa6ae3a66f4c556966ca20c0208b3659805cf30a83a0a31d6772
+          curl -fSL -o "$RUNNER_TEMP/ndk.zip" https://dl.google.com/android/repository/android-ndk-r30-linux.zip
+          unzip -q "$RUNNER_TEMP/ndk.zip" -d "$RUNNER_TEMP"
+      - run: python3 scripts/package-swift.py
+      - name: Link Swift consumer for both Android architectures
+        run: |
+          export ANDROID_NDK_HOME="$RUNNER_TEMP/android-ndk-r30"
+          for arch in aarch64 x86_64; do
+            swift build --package-path examples/swiftpm --build-system native --swift-sdk swift-6.4.1-RELEASE_android --triple "$arch-unknown-linux-android28" --static-swift-stdlib
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libraries-android
+          path: dist/libraries/
+  assemble:
+    needs: [apple, linux, android]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: libraries-*
+          merge-multiple: true
+          path: dist/libraries
+      - name: Assemble all release binaries
+        env:
+          RELEASE_BASE_URL: ${{ inputs.release_base_url }}
+        run: |
+          args=(--require-all)
+          if [ -n "$RELEASE_BASE_URL" ]; then args+=(--release-base-url "$RELEASE_BASE_URL"); fi
+          python3 scripts/package-swift.py "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Forwiroh-SwiftPM
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS

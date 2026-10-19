@@ -24,6 +24,11 @@ void forwiroh_string_free(char *);
 /* Shutdown wakes blocked calls. Join ALL callers before free. */
 void forwiroh_shutdown(ForwirohHandle *);
 void forwiroh_free(ForwirohHandle *);
+#ifdef __ANDROID__
+/* Call on the current JNI thread before open; arguments are JNIEnv* and jobject.
+ * Retains the Application context. Check for a pending JNI exception afterwards. */
+void forwiroh_android_init(void *environment, void *application);
+#endif
 #ifdef __cplusplus
 }
 #endif

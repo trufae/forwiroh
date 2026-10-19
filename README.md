@@ -49,6 +49,77 @@ Saved peers persist. iOS restores saved forward, SOCKS and reverse profiles in
 its VPN extension; other active tunnel configurations must be recreated after a
 networking restart.
 
+## Embed with SwiftPM
+
+`import Forwiroh` gives your application an async Swift API for pairing, peer
+management, permissions, TCP forwards, reverse forwards, SOCKS, events, and VPN
+packet transport. The package includes prebuilt core libraries: consumers do not
+need Rust, binding generation, a bridging header, or a separate daemon.
+Swift 6.2 or newer is required.
+
+| SDK platform | Included architectures | Minimum |
+| --- | --- | --- |
+| macOS | arm64 / x86_64 | macOS 14 |
+| iOS | arm64 device; arm64 / x86_64 simulator | iOS 17 |
+| Linux | arm64 / x86_64, glibc and musl | glibc 2.35 on x86_64; 2.39 on arm64, or musl |
+| Android | arm64-v8a / x86_64 | API 28 |
+
+Use a prepared checkout containing `Artifacts/`, or unpack
+`Forwiroh-<version>-swiftpm.zip`. In the sibling project's
+`pmai/MaiCore/Package.swift`, add the dependency and attach its product to the
+target that will own the endpoint:
+
+```swift
+dependencies: [
+    .package(path: "../../forwiroh"),
+],
+targets: [
+    .target(name: "YourTarget", dependencies: [
+        .product(name: "Forwiroh", package: "forwiroh"),
+    ]),
+]
+```
+
+For example, on macOS or Linux:
+
+```swift
+import Foundation
+import Forwiroh
+
+let state = URL.applicationSupportDirectory.appendingPathComponent("pmai/Forwiroh")
+let node = try await Forwiroh.open(stateDirectory: state, name: "pmai")
+let status = try await node.status()
+print(status.id, status.peers)
+
+// Once paired with "home", make its SSH service available locally.
+let tunnel = try await node.forward(peer: "home", listen: "127.0.0.1:2222",
+                                    service: "127.0.0.1:22")
+// Use localhost:2222, then stop the tunnel when finished.
+try await node.stopTunnel(id: tunnel)
+await node.close()
+```
+
+Keep the endpoint alive for as long as the feature needs networking. Mobile
+callers supply a persistent 32-byte identity from Keychain/Keystore. Android also
+needs one-time JNI initialization and the certificate verifier's Java dependency.
+System VPN setup and background services remain the host application's
+responsibility. See the [SwiftPM integration guide](docs/swiftpm.md) for pairing,
+events, mobile setup, lifecycle rules, and the
+[standalone consumer example](examples/swiftpm).
+
+Binaries are generated output and are not committed to this source tree. A fresh
+clone needs a maintainer build before SwiftPM can consume it. The
+[build and release instructions](docs/swiftpm.md#maintainer-builds-and-binary-releases)
+and [SwiftPM workflow](.github/workflows/swiftpm.yml) produce Apple XCFrameworks,
+Linux/Android static library bundles, and complete offline SwiftPM ZIPs in
+`dist/`. No hosted binary release or SwiftPM distribution tag has been published;
+use the prepared local checkout or full ZIP until then.
+
+Validation includes six Swift tests on macOS and Linux, external SwiftPM
+consumers, an unpacked standalone package, iOS device/simulator linking, and
+Android native archive linking. Android Swift SDK builds are configured in CI;
+Android device runtime testing is still outstanding.
+
 ## Quick start: phone → home computer
 
 ### 1. Build the home daemon

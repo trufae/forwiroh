@@ -1,4 +1,10 @@
 /target/
+/.build/
+/Artifacts/
+/dist/
+/.swiftpm/
+/examples/swiftpm/.build/
+/examples/swiftpm/.swiftpm/
 .DS_Store
 DerivedData/
 *.xcuserstate
