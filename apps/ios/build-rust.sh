@@ -20,7 +20,7 @@ SDKROOT="${SDKROOT:-$(xcrun --sdk "$PLATFORM_NAME" --show-sdk-path)}"
 export SDKROOT
 # Avoid inheriting simulator deployment flags into host build scripts.
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
-cargo build --locked --release -p famasock --target "$target"
+cargo build --locked --release -p forwiroh --target "$target"
 mkdir -p "$DERIVED_FILE_DIR"
-cp "target/$target/release/libfamasock.a" "$DERIVED_FILE_DIR/libfamasock.a"
-echo "Built $target: $DERIVED_FILE_DIR/libfamasock.a"
+cp "target/$target/release/libforwiroh.a" "$DERIVED_FILE_DIR/libforwiroh.a"
+echo "Built $target: $DERIVED_FILE_DIR/libforwiroh.a"

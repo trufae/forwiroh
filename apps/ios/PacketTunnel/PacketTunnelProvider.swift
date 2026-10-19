@@ -2,28 +2,30 @@ import NetworkExtension
 import Foundation
 import os
 
-final class PacketTunnelProvider: NEPacketTunnelProvider {
-    private let work = DispatchQueue(label: "org.radare.famasock.vpn")
-    private let log = Logger(subsystem: "org.radare.famasock", category: "VPN")
+/// Mutable provider state is confined to the serial work queue.
+final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
+    private let work = DispatchQueue(label: "org.radare.forwiroh.vpn")
+    private let log = Logger(subsystem: "org.radare.forwiroh", category: "VPN")
     private var core: RustCore?
     private var sessionID: String?
     private var activeForwards: [String: [String: Any]] = [:]
     private var events: [[String: Any]] = []
     private var addresses: [String: Any] = [:]
 
-    override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+    override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping @Sendable (Error?) -> Void) {
         work.async { [self] in
             RustCore.saveVPNError(nil)
             do {
                 guard let config = (protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration,
                       let peer = config["peer"] as? String, let routes = config["routes"] as? [String] else {
-                    throw FamasockError(message: "Missing VPN peer or routes")
+                    throw ForwirohError(message: "Missing VPN peer or routes")
                 }
                 log.info("Starting VPN to \(peer, privacy: .public)")
                 let core = try RustCore(); self.core = core
-                core.events { [weak self] event in
+                core.events { [weak self] data in
                     self?.work.async { [weak self] in
-                        guard let self else { return }
+                        guard let self,
+                              let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
                         if let error = event["error"] as? String { self.log.error("\(error, privacy: .public)") }
                         if event["event"] as? String != "access_request" {
                             self.events.append(event)
@@ -34,7 +36,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 let info = try core.command(["op": "vpn_start", "peer": peer, "routes": routes])
                 guard let id = info["id"] as? String, let local = info["local_ip"] as? String,
                       let remote = info["remote_ip"] as? String, let mtu = info["mtu"] as? NSNumber else {
-                    throw FamasockError(message: "Invalid VPN negotiation; update the server")
+                    throw ForwirohError(message: "Invalid VPN negotiation; update the server")
                 }
                 sessionID = id; addresses = info
                 let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: remote)
@@ -46,7 +48,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     ipv6.includedRoutes = try routes.filter { $0.contains(":") }.map { cidr in
                         let parts = cidr.split(separator: "/")
                         guard parts.count == 2, let bits = Int(parts[1]), (0...128).contains(bits) else {
-                            throw FamasockError(message: "Invalid IPv6 route: \(cidr)")
+                            throw ForwirohError(message: "Invalid IPv6 route: \(cidr)")
                         }
                         return NEIPv6Route(destinationAddress: String(parts[0]), networkPrefixLength: NSNumber(value: bits))
                     }
@@ -58,7 +60,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 settings.mtu = mtu
                 if let dns = config["dns"] as? String, !dns.isEmpty {
                     guard routes.contains(where: { Self.contains($0, dns) }) else {
-                        throw FamasockError(message: "DNS server must be inside a VPN route")
+                        throw ForwirohError(message: "DNS server must be inside a VPN route")
                     }
                     let dnsSettings = NEDNSSettings(servers: [dns]); dnsSettings.matchDomains = [""]
                     settings.dnsSettings = dnsSettings
@@ -84,7 +86,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         }
                         self?.work.async { [weak self] in
                             guard let self, self.sessionID == id else { return }
-                            let error = FamasockError(message: "VPN peer disconnected. Reconnect to resume forwarding.")
+                            let error = ForwirohError(message: "VPN peer disconnected. Reconnect to resume forwarding.")
                             self.fail(error); self.cancelTunnelWithError(error)
                         }
                     }
@@ -115,7 +117,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
     }
-    override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+    override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping @Sendable () -> Void) {
         work.async { [self] in
             sessionID = nil
             core?.close(); core = nil; activeForwards.removeAll()
@@ -123,25 +125,27 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             setTunnelNetworkSettings(nil) { _ in completionHandler() }
         }
     }
-    override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
+    override func handleAppMessage(_ messageData: Data, completionHandler: (@Sendable (Data?) -> Void)?) {
         work.async { [self] in
             guard let core, let id = sessionID else {
                 completionHandler?(Self.response(error: "VPN is not connected")); return
             }
-            guard messageData.count < 65_536, let command = try? JSONSerialization.jsonObject(with: messageData) as? [String: Any] else {
+            guard messageData.count < 65_536, (try? JSONSerialization.jsonObject(with: messageData)) is [String: Any] else {
                 completionHandler?(Self.response(error: "Invalid VPN command")); return
             }
             // Commands such as reverse/pair can wait for remote approval. They must
             // never block packet processing, status, cancellation or shutdown.
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let result: Result<[String: Any], Error> = Result { try core.command(command) }
+                let result = Result { try core.command(messageData) }
                 self?.work.async { [weak self] in
                     guard let self, self.core === core, self.sessionID == id else {
                         completionHandler?(Self.response(error: "VPN stopped")); return
                     }
-                    switch result {
-                    case .failure(let error): completionHandler?(Self.response(error: error.localizedDescription))
-                    case .success(var value):
+                    do {
+                        var value = try RustCore.decodeResponse(result.get())
+                        guard let command = try JSONSerialization.jsonObject(with: messageData) as? [String: Any] else {
+                            throw ForwirohError(message: "Invalid VPN command")
+                        }
                         let op = command["op"] as? String ?? ""
                         if ["forward", "reverse", "socks"].contains(op), let forward = value["id"] as? String {
                             self.activeForwards[forward] = command
@@ -161,7 +165,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         do { try RustCore.saveForwards(Array(self.activeForwards.values)) }
                         catch { self.log.error("Cannot save forward settings: \(error.localizedDescription, privacy: .public)") }
                         completionHandler?(try? JSONSerialization.data(withJSONObject: ["data": value]))
-                    }
+                    } catch { completionHandler?(Self.response(error: error.localizedDescription)) }
                 }
             }
         }
@@ -185,7 +189,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private static func route(_ cidr: String) throws -> NEIPv4Route {
         let parts = cidr.split(separator: "/")
         guard parts.count == 2, let bits = Int(parts[1]), (0...32).contains(bits), let net = ip(String(parts[0])) else {
-            throw FamasockError(message: "Invalid IPv4 route: \(cidr)")
+            throw ForwirohError(message: "Invalid IPv4 route: \(cidr)")
         }
         let mask = bits == 0 ? 0 : UInt32.max << (32 - bits)
         func dotted(_ value: UInt32) -> String { [24, 16, 8, 0].map { String((value >> $0) & 255) }.joined(separator: ".") }

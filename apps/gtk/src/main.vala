@@ -1,4 +1,4 @@
-namespace Famasock {
+namespace Forwiroh {
     private void clear_box (Gtk.Box box) {
         while (box.get_first_child () != null) box.remove (box.get_first_child ());
     }
@@ -49,7 +49,7 @@ namespace Famasock {
         private int qr_width = 0;
 
         public Window (Gtk.Application app) {
-            Object (application: app, title: "Famasock", default_width: 1050, default_height: 730);
+            Object (application: app, title: "Forwiroh", default_width: 1050, default_height: 730);
             var header = new Gtk.HeaderBar ();
             pair_button = button ("Pair device…", () => show_pairing ()); pair_button.sensitive = false;
             header.pack_end (pair_button); set_titlebar (header);
@@ -93,12 +93,12 @@ namespace Famasock {
             startup.begin ();
         }
         private async void startup () {
-            try { yield core.open (); if (!quitting) { pair_button.sensitive = true; status.label = "Networking active"; yield refresh (); if (Environment.get_variable ("FAMASOCK_UI_SMOKE") == "1") yield smoke_ui (); } }
+            try { yield core.open (); if (!quitting) { pair_button.sensitive = true; status.label = "Networking active"; yield refresh (); if (Environment.get_variable ("FORWIROH_UI_SMOKE") == "1") yield smoke_ui (); } }
             catch (Error e) {
                 show_error (e.message);
                 detail.append (label ("Could not start networking. State directory: " + core.path, true));
                 detail.append (button ("Retry", () => startup.begin ()));
-                if (Environment.get_variable ("FAMASOCK_UI_SMOKE") == "1") { ((Application) application).test_result = 1; close (); }
+                if (Environment.get_variable ("FORWIROH_UI_SMOKE") == "1") { ((Application) application).test_result = 1; close (); }
             }
         }
         private async void smoke_ui () {
@@ -269,13 +269,13 @@ namespace Famasock {
                 }
                 cr.fill ();
             }); content.append (qr_area);
-            expiry_label = label ("Scan the invitation in Famasock on your iPhone, then approve its identity here."); content.append (expiry_label);
+            expiry_label = label ("Scan the invitation in Forwiroh on your iPhone, then approve its identity here."); content.append (expiry_label);
             var row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
             generate_button = button ("Generate QR invitation", () => generate_invitation.begin ()); row.append (generate_button);
             copy_button = button ("Copy invitation", () => { var clipboard = get_display ().get_clipboard (); clipboard.set_text (invitation_uri); }); copy_button.sensitive = false; row.append (copy_button); content.append (row);
             content.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
             content.append (label ("Or accept an invitation from another device"));
-            var entry = new Gtk.Entry (); entry.placeholder_text = "Paste famasock://pair?data=…"; content.append (entry);
+            var entry = new Gtk.Entry (); entry.placeholder_text = "Paste forwiroh://pair?data=…"; content.append (entry);
             var accept = new Gtk.Button.with_label ("Accept & pair"); content.append (accept);
             accept.clicked.connect (() => {
                 if (pairing) return;
@@ -315,7 +315,7 @@ namespace Famasock {
         private void update_expiry () {
             if (expiry_label == null) return;
             int64 remaining = invitation_expires - new DateTime.now_utc ().to_unix ();
-            expiry_label.label = remaining > 0 ? "Scan with Famasock. Expires in %lld seconds.".printf (remaining) : "Invitation expired. Generate a new QR code.";
+            expiry_label.label = remaining > 0 ? "Scan with Forwiroh. Expires in %lld seconds.".printf (remaining) : "Invitation expired. Generate a new QR code.";
             if (copy_button != null) copy_button.sensitive = remaining > 0;
             if (qr_area != null) qr_area.queue_draw ();
         }
@@ -326,7 +326,7 @@ namespace Famasock {
             var content = new Gtk.Box (Gtk.Orientation.VERTICAL, 12);
             string id = selected;
             content.append (label (kind == "reverse" ? "Listen on the paired device and forward to this computer." : kind == "vpn" ? "Linux VPN client: provision an owned TUN, assigned address and routes first (docs/vpn.md). The paired server's default VPN exit needs no TUN or root." : "Listen on this computer and connect through the paired device."));
-            var port = field (content, kind == "vpn" ? "Existing TUN interface" : "Listening port", kind == "vpn" ? "famasock0" : kind == "socks" ? "1080" : "2222");
+            var port = field (content, kind == "vpn" ? "Existing TUN interface" : "Listening port", kind == "vpn" ? "forwiroh0" : kind == "socks" ? "1080" : "2222");
             var all = new Gtk.CheckButton.with_label ("Listen on all interfaces (0.0.0.0)"); if (kind == "forward") content.append (all);
             Gtk.Entry? host = null; Gtk.Entry? target_port = null;
             if (kind == "forward" || kind == "reverse") { host = field (content, kind == "reverse" ? "Destination IP on this computer" : "Destination host on the paired device", kind == "reverse" ? "127.0.0.1" : "localhost"); target_port = field (content, "Destination port", "22"); }
@@ -375,7 +375,7 @@ namespace Famasock {
         }
         private Gtk.Window show_about () {
             var content = new Gtk.Box (Gtk.Orientation.VERTICAL, 16);
-            content.append (label ("Famasock " + Native.version ()));
+            content.append (label ("Forwiroh " + Native.version ()));
             content.append (label ("Iroh · QUIC · TLS 1.3\nIdentity: Ed25519 · 256-bit public key"));
             try {
                 var crypto = parse (take_string (Native.crypto_info ())).get_object ();
@@ -394,7 +394,7 @@ namespace Famasock {
 
     public class Application : Gtk.Application {
         public int test_result { get; set; default = 0; }
-        public Application () { Object (application_id: "org.radare.famasock.gtk", flags: Environment.get_variable ("FAMASOCK_UI_SMOKE") == "1" ? ApplicationFlags.NON_UNIQUE : ApplicationFlags.DEFAULT_FLAGS); }
+        public Application () { Object (application_id: "org.radare.forwiroh.gtk", flags: Environment.get_variable ("FORWIROH_UI_SMOKE") == "1" ? ApplicationFlags.NON_UNIQUE : ApplicationFlags.DEFAULT_FLAGS); }
         protected override void activate () {
             if (active_window != null) active_window.present ();
             else new Window (this).present ();
@@ -402,8 +402,8 @@ namespace Famasock {
     }
 }
 int main (string[] args) {
-    if (args.length == 2 && args[1] == "--version") { print ("Famasock GTK %s\n", Native.version ()); return 0; }
-    var app = new Famasock.Application ();
+    if (args.length == 2 && args[1] == "--version") { print ("Forwiroh GTK %s\n", Native.version ()); return 0; }
+    var app = new Forwiroh.Application ();
     int result = app.run (args);
     return app.test_result != 0 ? app.test_result : result;
 }

@@ -7,7 +7,7 @@
 <key>CFBundlePackageType</key><string>XPC!</string>
 <key>CFBundleShortVersionString</key><string>0.2.0</string>
 <key>CFBundleVersion</key><string>1</string>
-<key>FamasockAppGroup</key><string>$(FAMASOCK_APP_GROUP)</string>
-<key>FamasockKeychainGroup</key><string>$(AppIdentifierPrefix)$(FAMASOCK_KEYCHAIN_GROUP)</string>
+<key>ForwirohAppGroup</key><string>$(FORWIROH_APP_GROUP)</string>
+<key>ForwirohKeychainGroup</key><string>$(AppIdentifierPrefix)$(FORWIROH_KEYCHAIN_GROUP)</string>
 <key>NSExtension</key><dict><key>NSExtensionPointIdentifier</key><string>com.apple.networkextension.packet-tunnel</string><key>NSExtensionPrincipalClass</key><string>$(PRODUCT_MODULE_NAME).PacketTunnelProvider</string></dict>
 </dict></plist>

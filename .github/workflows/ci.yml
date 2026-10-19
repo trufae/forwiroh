@@ -29,7 +29,7 @@ jobs:
       - run: python3 scripts/cli-smoke.py
       - name: Public relay without direct UDP
         if: runner.os == 'Linux'
-        run: cargo test -p famasock --test relay --locked -- --ignored
+        run: cargo test -p forwiroh --test relay --locked -- --ignored
       - name: Real Linux TUN forwarding
         if: runner.os == 'Linux'
         run: sudo python3 scripts/vpn-kernel.py
@@ -51,17 +51,17 @@ jobs:
         run: python3 scripts/check-xcode.py
       - name: Build native app and extension for device (unsigned)
         run: >-
-          xcodebuild -project apps/ios/Famasock.xcodeproj -scheme Famasock
+          xcodebuild -project apps/ios/Forwiroh.xcodeproj -scheme Forwiroh
           -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
           -derivedDataPath DerivedData/device ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build
       - name: Build native app and extension for simulator
         run: >-
-          xcodebuild -project apps/ios/Famasock.xcodeproj -scheme Famasock
+          xcodebuild -project apps/ios/Forwiroh.xcodeproj -scheme Forwiroh
           -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
           -derivedDataPath DerivedData/simulator ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build
       - uses: actions/upload-artifact@v4
         with:
-          name: Famasock-unsigned-device-and-simulator
+          name: Forwiroh-unsigned-device-and-simulator
           path: DerivedData/*/Build/Products/Release-*/*.app
   android:
     if: ${{ false }}
@@ -107,7 +107,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Famasock-android-debug
+          name: Forwiroh-android-debug
           path: |
             apps/android/app/build/outputs/apk/debug/*.apk
             apps/android/app/build/reports/
@@ -136,10 +136,10 @@ jobs:
       - name: GTK native UI smoke
         if: runner.os == 'Linux'
         run: >-
-          FAMASOCK_STATE=$RUNNER_TEMP/famasock-ui-test FAMASOCK_UI_SMOKE=1
-          G_DEBUG=fatal-criticals xvfb-run -a dbus-run-session -- apps/gtk/build/famasock-gtk
+          FORWIROH_STATE=$RUNNER_TEMP/forwiroh-ui-test FORWIROH_UI_SMOKE=1
+          G_DEBUG=fatal-criticals xvfb-run -a dbus-run-session -- apps/gtk/build/forwiroh-gtk
       - uses: actions/upload-artifact@v4
         if: runner.os == 'macOS'
         with:
-          name: Famasock-macOS
-          path: apps/macos/build/Famasock.app
+          name: Forwiroh-macOS
+          path: apps/macos/build/Forwiroh.app

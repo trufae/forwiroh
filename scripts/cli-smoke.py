@@ -4,10 +4,10 @@ import errno, fcntl, json, os, pty, select, socket, struct, subprocess, sys, tem
 from pathlib import Path
 assert os.geteuid() != 0, 'Run the socket-only CLI smoke test as a normal user, without sudo'
 print(f'Socket-only daemon/CLI test, uid={os.geteuid()}, no TUN setup')
-binary = str(Path(sys.argv[1] if len(sys.argv)>1 else 'target/debug/famasock').resolve())
+binary = str(Path(sys.argv[1] if len(sys.argv)>1 else 'target/debug/forwiroh').resolve())
 version_output=subprocess.check_output([binary,'version'],text=True).strip()
 assert subprocess.check_output([binary,'--version'],text=True).strip()==version_output
-assert version_output.startswith('famasock ')
+assert version_output.startswith('forwiroh ')
 version=version_output.split(' ',1)[1]
 def terminal_session():
     os.setsid()
@@ -76,7 +76,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 os.close(slave)
             try:
                 output=terminal_read(master,b'Waiting for pairing request')
-                uri=next(line for line in output.decode().splitlines() if line.startswith('famasock://pair?data='))
+                uri=next(line for line in output.decode().splitlines() if line.startswith('forwiroh://pair?data='))
                 # CLI accepts on stdin, avoiding the secret in argv/history.
                 join=subprocess.Popen([binary,'--state',str(roots[1]),'pair','--accept','-'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
                 processes.append(join)

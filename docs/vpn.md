@@ -1,12 +1,12 @@
 # VPN and background forwarding
 
-Use Famasock 0.2.0 or newer on **both** the iPhone and server. This release changes
+Use Forwiroh 0.2.0 or newer on **both** the iPhone and server. This release changes
 VPN packet framing and the MTU. Existing identities and pairing survive an
 upgrade; there is no need to scan another QR code.
 
 ## Rootless server
 
-Run `famasock serve --name home` as your normal user, pair the phone and approve
+Run `forwiroh serve --name home` as your normal user, pair the phone and approve
 it. That is all the server setup needed for the default VPN. Linux and macOS exits
 translate IP packets into ordinary outgoing TCP and UDP sockets using smoltcp.
 There is no server TUN, raw socket, root, CAP_NET_ADMIN, IP forwarding, firewall
@@ -31,7 +31,7 @@ the two virtual hosts if using the iPhone ports-only mode:
 }
 ```
 
-Apply it with `famasock policy iPhone vpn-policy.json`. Policy replaces the whole
+Apply it with `forwiroh policy iPhone vpn-policy.json`. Policy replaces the whole
 policy, so preserve existing service/SOCKS/reverse grants in that file if needed.
 Omitting `tun` selects the rootless exit. An explicit VPN policy's route list is
 an upper bound even when `restricted` is false. VPN grants are route grants;
@@ -108,13 +108,13 @@ daemon user, routes, forwarding/return routing and firewall/NAT as appropriate.
 Each kernel-backend peer needs a unique TUN and client address. The daemon itself
 does not configure these resources. Use **MTU 1280** on both ends.
 
-The Linux CLI `famasock vpn home --route 192.168.1.0/24 --tun famasock0` is a
+The Linux CLI `forwiroh vpn home --route 192.168.1.0/24 --tun forwiroh0` is a
 kernel **client** and likewise needs an administratively provisioned TUN, assigned
 client address and routes. The rootless-server requirement does not remove the
 OS privilege needed to install a VPN interface on a desktop client. CLI route
 checks conservatively reject overlap with Iroh transport addresses; full desktop
 routing needs explicit transport bypass and is not exposed as a working GUI VPN.
-macOS CLI does not install a VPN interface. `famasock stop-vpn SESSION_ID` stops
+macOS CLI does not install a VPN interface. `forwiroh stop-vpn SESSION_ID` stops
 the packet session; remove any manually installed routes/interface explicitly.
 
 The isolated namespace test `scripts/vpn-kernel.py` verifies the legacy TUN path.

@@ -5,10 +5,10 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include "famasock.h"
+#include "forwiroh.h"
 
-#define JNI(name) Java_org_famasock_RustCore_##name
-#define HANDLE(value) ((FamasockHandle *)(intptr_t)(value))
+#define JNI(name) Java_org_forwiroh_RustCore_##name
+#define HANDLE(value) ((ForwirohHandle *)(intptr_t)(value))
 #define UNUSED() (void)klass
 
 static void fail(JNIEnv *env, const char *message) {
@@ -36,12 +36,12 @@ static jbyteArray bytes(JNIEnv *env, const char *value) {
 }
 static jbyteArray owned(JNIEnv *env, char *value) {
     jbyteArray result = bytes(env, value);
-    famasock_string_free(value);
+    forwiroh_string_free(value);
     return result;
 }
-extern void famasock_android_init(JNIEnv *env, jobject context);
+extern void forwiroh_android_init(JNIEnv *env, jobject context);
 JNIEXPORT void JNICALL JNI(initializeNative)(JNIEnv *env, jclass klass, jobject context) {
-    UNUSED(); famasock_android_init(env, context);
+    UNUSED(); forwiroh_android_init(env, context);
 }
 JNIEXPORT jlong JNICALL JNI(openNative)(JNIEnv *env, jclass klass, jbyteArray path, jbyteArray key) {
     UNUSED();
@@ -51,33 +51,33 @@ JNIEXPORT jlong JNICALL JNI(openNative)(JNIEnv *env, jclass klass, jbyteArray pa
     uint8_t secret[32];
     (*env)->GetByteArrayRegion(env, key, 0, 32, (jbyte *)secret);
     char *error = NULL;
-    FamasockHandle *handle = famasock_open(directory, "Android", secret, &error);
+    ForwirohHandle *handle = forwiroh_open(directory, "Android", secret, &error);
     volatile uint8_t *wipe = secret;
     for (size_t i = 0; i < sizeof(secret); i++) wipe[i] = 0;
     free(directory);
     if (!handle) fail(env, error ? error : "Cannot open core");
-    famasock_string_free(error);
+    forwiroh_string_free(error);
     return (jlong)(intptr_t)handle;
 }
 JNIEXPORT jbyteArray JNICALL JNI(commandNative)(JNIEnv *env, jclass klass, jlong handle, jbyteArray json) {
     UNUSED();
     char *input = text(env, json);
     if (!input) return NULL;
-    char *output = famasock_command(HANDLE(handle), input);
+    char *output = forwiroh_command(HANDLE(handle), input);
     free(input);
     return owned(env, output);
 }
 JNIEXPORT jbyteArray JNICALL JNI(eventNative)(JNIEnv *env, jclass klass, jlong handle) {
-    UNUSED(); return owned(env, famasock_next_event(HANDLE(handle)));
+    UNUSED(); return owned(env, forwiroh_next_event(HANDLE(handle)));
 }
 JNIEXPORT jbyteArray JNICALL JNI(versionNative)(JNIEnv *env, jclass klass) {
-    UNUSED(); return bytes(env, famasock_version());
+    UNUSED(); return bytes(env, forwiroh_version());
 }
 JNIEXPORT void JNICALL JNI(shutdownNative)(JNIEnv *env, jclass klass, jlong handle) {
-    (void)env; UNUSED(); famasock_shutdown(HANDLE(handle));
+    (void)env; UNUSED(); forwiroh_shutdown(HANDLE(handle));
 }
 JNIEXPORT void JNICALL JNI(freeNative)(JNIEnv *env, jclass klass, jlong handle) {
-    (void)env; UNUSED(); famasock_free(HANDLE(handle));
+    (void)env; UNUSED(); forwiroh_free(HANDLE(handle));
 }
 JNIEXPORT jint JNICALL JNI(sendNative)(JNIEnv *env, jclass klass, jlong handle, jbyteArray session, jbyteArray packet, jint length) {
     UNUSED();
@@ -86,7 +86,7 @@ JNIEXPORT jint JNICALL JNI(sendNative)(JNIEnv *env, jclass klass, jlong handle, 
     if (!id) return -1;
     uint8_t data[1100];
     (*env)->GetByteArrayRegion(env, packet, 0, length, (jbyte *)data);
-    int result = famasock_send_packet(HANDLE(handle), id, data, (size_t)length);
+    int result = forwiroh_send_packet(HANDLE(handle), id, data, (size_t)length);
     free(id);
     return result;
 }
@@ -95,7 +95,7 @@ JNIEXPORT jbyteArray JNICALL JNI(receiveNative)(JNIEnv *env, jclass klass, jlong
     char *id = text(env, session);
     if (!id) return NULL;
     uint8_t data[1100];
-    int n = famasock_receive_packet(HANDLE(handle), id, data, sizeof(data));
+    int n = forwiroh_receive_packet(HANDLE(handle), id, data, sizeof(data));
     free(id);
     if (n <= 0) return NULL;
     jbyteArray result = (*env)->NewByteArray(env, n);

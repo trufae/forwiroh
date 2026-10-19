@@ -1,4 +1,4 @@
-namespace Famasock {
+namespace Forwiroh {
     public class TCPClientView : Gtk.Box {
         private Gtk.Entry host = new Gtk.Entry ();
         private Gtk.Entry port = new Gtk.Entry ();

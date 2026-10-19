@@ -6,11 +6,11 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1] / "apps/ios"
 project = plistlib.loads(subprocess.check_output([
-    "plutil", "-convert", "xml1", "-o", "-", str(root / "Famasock.xcodeproj/project.pbxproj")
+    "plutil", "-convert", "xml1", "-o", "-", str(root / "Forwiroh.xcodeproj/project.pbxproj")
 ]))
 objects = project["objects"]
 targets = {o["name"]: o for o in objects.values() if o.get("isa") == "PBXNativeTarget"}
-assert set(targets) == {"Famasock", "PacketTunnel"}, "Missing app or VPN extension target"
+assert set(targets) == {"Forwiroh", "PacketTunnel"}, "Missing app or VPN extension target"
 for name, target in targets.items():
     phases = [objects[p] for p in target["buildPhases"]]
     compiled = {
@@ -25,14 +25,14 @@ for name, target in targets.items():
     for config in configs:
         settings = objects[config]["buildSettings"]
         assert (root / settings["CODE_SIGN_ENTITLEMENTS"]).is_file(), "Missing entitlements"
-        assert settings["FAMASOCK_APP_GROUP"] == "group.org.radare.famasock", "Wrong shared group"
-        assert settings["FAMASOCK_KEYCHAIN_GROUP"] == "org.radare.famasock.shared", "Wrong key group"
-        assert settings["SWIFT_OBJC_BRIDGING_HEADER"] == "Shared/famasock.h", "Wrong C bridge"
+        assert settings["FORWIROH_APP_GROUP"] == "group.org.radare.forwiroh", "Wrong shared group"
+        assert settings["FORWIROH_KEYCHAIN_GROUP"] == "org.radare.forwiroh.shared", "Wrong key group"
+        assert settings["SWIFT_OBJC_BRIDGING_HEADER"] == "Shared/forwiroh.h", "Wrong C bridge"
         if name == "PacketTunnel":
             assert settings["APPLICATION_EXTENSION_API_ONLY"] == "YES", "Extension-only APIs disabled"
     assert any(p["isa"] == "PBXShellScriptBuildPhase" and "build-rust.sh" in p["shellScript"]
                for p in phases), f"{name}: missing Rust build"
-embed = [objects[p] for p in targets["Famasock"]["buildPhases"]
+embed = [objects[p] for p in targets["Forwiroh"]["buildPhases"]
          if objects[p]["isa"] == "PBXCopyFilesBuildPhase"]
 assert any(str(p["dstSubfolderSpec"]) == "13" and any(
     objects[f]["fileRef"] == targets["PacketTunnel"]["productReference"] for f in p["files"]

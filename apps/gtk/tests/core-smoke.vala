@@ -1,4 +1,4 @@
-using Famasock;
+using Forwiroh;
 
 async void smoke_pause () {
     Timeout.add (20, () => { smoke_pause.callback (); return Source.REMOVE; });
@@ -30,8 +30,8 @@ void remove_state (string path) throws Error {
     DirUtils.remove (path);
 }
 async void smoke () throws Error {
-    string home_path = DirUtils.make_tmp ("famasock-gtk-home-XXXXXX");
-    string phone_path = DirUtils.make_tmp ("famasock-gtk-phone-XXXXXX");
+    string home_path = DirUtils.make_tmp ("forwiroh-gtk-home-XXXXXX");
+    string phone_path = DirUtils.make_tmp ("forwiroh-gtk-phone-XXXXXX");
     var home = new Core (home_path); var phone = new Core (phone_path);
     uint heartbeat = 0;
     uint timer = Timeout.add (10, () => { heartbeat++; return Source.CONTINUE; });

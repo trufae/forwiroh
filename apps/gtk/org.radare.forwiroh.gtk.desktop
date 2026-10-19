@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Forwiroh
+Comment=Pair devices and forward ports through encrypted connections
+Exec=forwiroh-gtk
+Icon=network-workgroup
+Terminal=false
+Categories=Network;
+StartupNotify=true

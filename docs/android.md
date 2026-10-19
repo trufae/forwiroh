@@ -32,7 +32,7 @@ an installable debug APK and test/lint reports.
 
 ## Pair and connect
 
-1. Run `famasock serve --name home` on Linux/macOS, then `famasock pair` in another
+1. Run `forwiroh serve --name home` on Linux/macOS, then `forwiroh pair` in another
    terminal using the same state directory.
 2. In Android, scan that QR or paste its invitation URI. Review and confirm it.
 3. Verify the requesting device identity in the terminal and approve it.
@@ -83,7 +83,7 @@ Linux-style TUN server. Select a paired peer, enter comma-separated private IPv4
 CIDRs and accept Android's system VPN consent. Rust validates and negotiates the
 routes; Android installs only those returned by the core with MTU 1100.
 
-The Famasock package is excluded from VPN to keep Iroh's UDP and relay connections
+The Forwiroh package is excluded from VPN to keep Iroh's UDP and relay connections
 outside the tunnel. Other applications use the specified split routes. DNS stays
 on the system network. There is no full tunnel, custom DNS, IPv6 VPN, always-on
 VPN, automatic reconnect, or SOCKS UDP support. Stopping VPN, revoking system VPN

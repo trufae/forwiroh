@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/famasock", "crates/famasock-cli"]
+members = ["crates/forwiroh", "crates/forwiroh-cli"]
 resolver = "3"
 
 [workspace.package]

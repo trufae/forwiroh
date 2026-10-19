@@ -6,7 +6,7 @@ All namespaces, devices, routes and daemons are removed in finally.
 import json, os, socket, struct, subprocess, sys, tempfile, time, uuid
 from pathlib import Path
 assert sys.platform == 'linux' and os.geteuid() == 0, 'requires Linux root in a disposable test VM'
-binary=str(Path(sys.argv[1] if len(sys.argv)>1 else 'target/debug/famasock').resolve())
+binary=str(Path(sys.argv[1] if len(sys.argv)>1 else 'target/debug/forwiroh').resolve())
 tag=uuid.uuid4().hex[:7]
 names=['fs-'+tag+'s','fs-'+tag+'c'];procs=[]
 def run(*args):return subprocess.run(args,check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True).stdout
@@ -36,13 +36,13 @@ with tempfile.TemporaryDirectory() as tmp:
             run('ip','link','set',dev,'netns',ns)
             ip(ns,'addr','add',f'10.200.0.{i+1}/24','dev',dev)
             ip(ns,'link','set',dev,'up');ip(ns,'link','set','lo','up')
-            ip(ns,'tuntap','add','dev','famasock0','mode','tun')
-            ip(ns,'addr','add',f'10.250.0.{i+1}/32','dev','famasock0')
-            ip(ns,'link','set','famasock0','mtu','1280','up')
+            ip(ns,'tuntap','add','dev','forwiroh0','mode','tun')
+            ip(ns,'addr','add',f'10.250.0.{i+1}/32','dev','forwiroh0')
+            ip(ns,'link','set','forwiroh0','mtu','1280','up')
         ip(names[0],'link','add','destination','type','dummy')
         ip(names[0],'addr','add','172.23.0.1/32','dev','destination');ip(names[0],'link','set','destination','up')
-        ip(names[0],'route','add','10.250.0.2/32','dev','famasock0')
-        ip(names[1],'route','add','172.23.0.1/32','dev','famasock0')
+        ip(names[0],'route','add','10.250.0.2/32','dev','forwiroh0')
+        ip(names[1],'route','add','172.23.0.1/32','dev','forwiroh0')
         for ns,root in zip(names,roots):
             procs.append(subprocess.Popen(['ip','netns','exec',ns,binary,'--state',str(root),'serve','--name',root.name],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE))
         for root in roots:
@@ -59,11 +59,11 @@ with tempfile.TemporaryDirectory() as tmp:
                 if time.monotonic()>deadline:raise RuntimeError('pair request timed out')
                 time.sleep(.05)
             rpc(roots[0],{'op':'approve','id':pending[0]['id'],'accept':True});future.result(timeout=20)
-        rpc(roots[0],{'op':'policy','peer':'client','policy':{'vpn':{'routes':['172.23.0.1/32'],'local_ip':'10.250.0.1','peer_ip':'10.250.0.2','tun':'famasock0'}}})
-        link=rpc(roots[1],{'op':'vpn','peer':'server','routes':['172.23.0.1/32'],'tun':'famasock0'})
+        rpc(roots[0],{'op':'policy','peer':'client','policy':{'vpn':{'routes':['172.23.0.1/32'],'local_ip':'10.250.0.1','peer_ip':'10.250.0.2','tun':'forwiroh0'}}})
+        link=rpc(roots[1],{'op':'vpn','peer':'server','routes':['172.23.0.1/32'],'tun':'forwiroh0'})
         output=run('ip','netns','exec',names[1],'ping','-c','3','-W','3','172.23.0.1')
         assert '0% packet loss' in output,output
-        payload=Path(tmp)/'payload';payload.write_bytes(b'Famasock VPN\n'*10000)
+        payload=Path(tmp)/'payload';payload.write_bytes(b'Forwiroh VPN\n'*10000)
         procs.append(subprocess.Popen(['ip','netns','exec',names[0],sys.executable,'-m','http.server','8088','--bind','172.23.0.1','--directory',tmp],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE))
         deadline=time.monotonic()+5
         while True:

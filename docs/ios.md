@@ -1,15 +1,16 @@
 # Native iOS build and device validation
 
-Requirements: Xcode with an iOS SDK, Rust, and the Apple Rust targets:
+Requirements: Xcode with Swift 6 and an iOS SDK, Rust, and the Apple Rust targets:
 
 ```sh
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-open apps/ios/Famasock.xcodeproj
+open apps/ios/Forwiroh.xcodeproj
 ```
 
-The checked-in project has two targets: Famasock (SwiftUI) and PacketTunnel
-(NetworkExtension). A build phase compiles the shared Rust static library for the
-selected SDK/architecture. No Swift copy of the networking protocol exists.
+The checked-in project has two targets: Forwiroh (SwiftUI) and PacketTunnel
+(NetworkExtension), both in Swift 6 language mode. A build phase compiles the
+shared Rust static library for the selected SDK/architecture. No Swift copy of
+the networking protocol exists.
 The project can be regenerated deterministically with
 `python3 scripts/generate-xcode.py`; change the generator when changing targets
 or build settings.
@@ -22,7 +23,7 @@ apps/ios/build-rust.sh
 ```
 
 This defaults to `iphoneos` / `arm64` (`aarch64-apple-ios`), discovers the SDK
-with `xcrun`, and copies the library to `apps/ios/Frameworks/libfamasock.a`.
+with `xcrun`, and copies the library to `apps/ios/Frameworks/libforwiroh.a`.
 Xcode's environment overrides these defaults when building the app or simulator.
 
 In the forwarding form, **Listen on iPhone** means
@@ -46,7 +47,7 @@ ssh -p 2222 YOUR_MAC_USERNAME@IPHONE_WIFI_IP
 ```
 
 Find the iPhone's IP address in Settings > Wi-Fi > the network's info button.
-Connect to that address, not `0.0.0.0`. Keep Famasock open on the iPhone during
+Connect to that address, not `0.0.0.0`. Keep Forwiroh open on the iPhone during
 the test. The path is Mac > iPhone:2222 > paired Mac's localhost:22.
 
 You can also test without leaving the iPhone app: open **TCP test client** under
@@ -63,12 +64,12 @@ Connection and tunnel setup show progress. Starting a forward or SOCKS listener
 returns to the peer screen on success and displays a confirmation; errors keep
 the form open. Ordinary forwards still stop when the iPhone app backgrounds.
 
-The peer list's **About Famasock** section shows the installed app version/build
+The peer list's **About Forwiroh** section shows the installed app version/build
 and the actual bundled Rust core version, even when the core is stopped or VPN
 is active. The CLI displays its core version with `--version` or `version`;
 `serve` prints it at startup and `status` reports the running daemon's version.
 
-**About Famasock > Crypto information** displays Ed25519 identity key sizes,
+**About Forwiroh > Crypto information** displays Ed25519 identity key sizes,
 Keychain storage, QUIC/TLS 1.3, and the cipher suites and key exchanges supported
 by the compiled Rust TLS provider. Capabilities are read from the core even
 when it is stopped; they are not a claim about a particular connection's
@@ -77,7 +78,7 @@ negotiated cipher.
 For unsigned compilation (does not install a working VPN on a phone):
 
 ```sh
-xcodebuild -project apps/ios/Famasock.xcodeproj -scheme Famasock \
+xcodebuild -project apps/ios/Forwiroh.xcodeproj -scheme Forwiroh \
   -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
   ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build
 ```
@@ -85,10 +86,10 @@ xcodebuild -project apps/ios/Famasock.xcodeproj -scheme Famasock \
 For a physical device, select your development team for BOTH targets. Register
 unique app and extension bundle identifiers and replace the defaults as needed:
 
-- app: `org.radare.famasock`
-- extension: `org.radare.famasock.PacketTunnel`
-- shared App Group build setting: `group.org.radare.famasock`
-- shared Keychain suffix: `org.radare.famasock.shared`
+- app: `org.radare.forwiroh`
+- extension: `org.radare.forwiroh.PacketTunnel`
+- shared App Group build setting: `group.org.radare.forwiroh`
+- shared Keychain suffix: `org.radare.forwiroh.shared`
 
 Enable Network Extensions (packet-tunnel-provider), App Groups and Keychain
 Sharing for the appropriate App IDs/profiles. The Keychain group includes the

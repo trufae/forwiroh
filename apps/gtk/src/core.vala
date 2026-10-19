@@ -1,4 +1,4 @@
-namespace Famasock {
+namespace Forwiroh {
     public errordomain CoreError { FAILED }
 
     public string take_string (string text) {
@@ -61,15 +61,15 @@ namespace Famasock {
         private int callers = 0;
 
         public Core (string? state_path = null) {
-            path = state_path ?? Environment.get_variable ("FAMASOCK_STATE") ??
-                Path.build_filename (Environment.get_user_state_dir (), "famasock-gtk");
+            path = state_path ?? Environment.get_variable ("FORWIROH_STATE") ??
+                Path.build_filename (Environment.get_user_state_dir (), "forwiroh-gtk");
         }
         public async void open (string name = "Linux") throws Error {
             if (ready || opening || closing) throw new CoreError.FAILED ("Networking is already starting or stopped");
             opening = true;
             void* opened = null;
             string? failure = null;
-            new Thread<void*> ("famasock-open", () => {
+            new Thread<void*> ("forwiroh-open", () => {
                 unowned string? error;
                 opened = Native.open_desktop (path, name, out error);
                 if (error != null) failure = take_string (error);
@@ -90,7 +90,7 @@ namespace Famasock {
             ready = true;
             add_caller ();
             var current = handle;
-            new Thread<void*> ("famasock-events", () => {
+            new Thread<void*> ("forwiroh-events", () => {
                 while (true) {
                     unowned string? raw = Native.next_event (current);
                     if (raw == null) break;
@@ -115,7 +115,7 @@ namespace Famasock {
             var input = encode (command);
             string reply = "";
             add_caller ();
-            new Thread<void*> ("famasock-command", () => {
+            new Thread<void*> ("forwiroh-command", () => {
                 reply = take_string (Native.command (current, input));
                 remove_caller ();
                 Idle.add (() => { request.callback (); return Source.REMOVE; });
@@ -133,7 +133,7 @@ namespace Famasock {
             }
             if (handle == null) return;
             var current = handle;
-            new Thread<void*> ("famasock-close", () => {
+            new Thread<void*> ("forwiroh-close", () => {
                 Native.shutdown (current);
                 mutex.lock ();
                 while (callers > 0) finished.wait (mutex);

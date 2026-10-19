@@ -818,50 +818,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "famasock"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "bytes",
- "etherparse",
- "fast-socks5",
- "fs2",
- "futures-util",
- "getrandom 0.4.3",
- "ipnet",
- "iroh",
- "jni 0.22.4",
- "libc",
- "ndk-context",
- "netstack-smoltcp",
- "qrcode",
- "rustls-platform-verifier",
- "serde",
- "serde_json",
- "smoltcp",
- "socket2 0.6.5",
- "subtle",
- "tempfile",
- "tokio",
- "tokio-util",
- "tun",
-]
-
-[[package]]
-name = "famasock-cli"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "clap",
- "famasock",
- "libc",
- "qrcode",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "fast-socks5"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -907,6 +863,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "forwiroh"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bytes",
+ "etherparse",
+ "fast-socks5",
+ "fs2",
+ "futures-util",
+ "getrandom 0.4.3",
+ "ipnet",
+ "iroh",
+ "jni 0.22.4",
+ "libc",
+ "ndk-context",
+ "netstack-smoltcp",
+ "qrcode",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "smoltcp",
+ "socket2 0.6.5",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tun",
+]
+
+[[package]]
+name = "forwiroh-cli"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "forwiroh",
+ "libc",
+ "qrcode",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

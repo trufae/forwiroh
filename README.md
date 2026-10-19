@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/assets/famasock-logo.png" width="176" alt="Famasock — two linked endpoints" />
+  <img src="docs/assets/forwiroh-logo.png" width="176" alt="Forwiroh — two linked endpoints" />
 </p>
 
-# Famasock
+# Forwiroh
 
 **Reach services on your own devices, wherever you are.**
 
-Famasock connects an Android phone, iPhone, Linux machine or Mac to trusted peers
+Forwiroh connects an Android phone, iPhone, Linux machine or Mac to trusted peers
 through encrypted [Iroh](https://iroh.computer/) connections. Run it on your home
 computer, scan its pairing QR with your phone, approve the request, and open a
 local port that reaches a service at home. You can pair several devices and run
@@ -40,8 +40,8 @@ traffic. After pairing, choose one of the connection types above.
 | --- | --- | --- |
 | Android 8.0+ | Native app in [`apps/android`](apps/android): QR scanner, peers, tunnels and VPN | A foreground service runs while its notification is active. |
 | iPhone / iPad, iOS 17+ | Native SwiftUI app in [`apps/ios`](apps/ios): QR scanner, peers, tunnels, TCP diagnostics and VPN | Ordinary socket tunnels require the app in the foreground; VPN runs in a Packet Tunnel extension. |
-| Linux | `famasock` CLI and daemon | Keep `serve` running, optionally as a user systemd service. Supports a pre-provisioned VPN TUN. |
-| macOS | `famasock` CLI and daemon; native SwiftUI app in [`apps/macos`](apps/macos) | Keep `serve` running. CLI VPN is not implemented. |
+| Linux | `forwiroh` CLI and daemon | Keep `serve` running, optionally as a user systemd service. Supports a pre-provisioned VPN TUN. |
+| macOS | `forwiroh` CLI and daemon; native SwiftUI app in [`apps/macos`](apps/macos) | Keep `serve` running. CLI VPN is not implemented. |
 
 The mobile apps and CLI share the same Rust networking and authorization core.
 Android stores the identity encrypted with a Keystore key; iOS uses Keychain.
@@ -56,17 +56,17 @@ networking restart.
 Install stable Rust (minimum 1.91), then:
 
 ```sh
-git clone https://github.com/trufae/famasock.git
-cd famasock
-cargo install --path crates/famasock-cli --locked
-famasock serve --name home
+git clone https://github.com/trufae/forwiroh.git
+cd forwiroh
+cargo install --path crates/forwiroh-cli --locked
+forwiroh serve --name home
 ```
 
 Leave that terminal running. Commands in other terminals talk to this daemon;
 they do not launch another copy of the identity.
 
-By default, state lives in `$XDG_STATE_HOME/famasock` or
-`~/.local/state/famasock`. To use a different directory, pass `--state DIRECTORY`
+By default, state lives in `$XDG_STATE_HOME/forwiroh` or
+`~/.local/state/forwiroh`. To use a different directory, pass `--state DIRECTORY`
 to **every** command, including `serve`.
 
 ### 2. Install the phone app
@@ -74,7 +74,7 @@ to **every** command, including `serve`.
 - **Android:** open `apps/android` in Android Studio, or follow the
   [command-line build and APK installation instructions](docs/android.md#build).
   The APK supports arm64 and x86_64. Start networking in the app.
-- **iOS:** open `apps/ios/Famasock.xcodeproj`, configure your signing team and
+- **iOS:** open `apps/ios/Forwiroh.xcodeproj`, configure your signing team and
   entitlements, then run on your device. See [iOS signing/setup](docs/ios.md).
 
 There is no App Store or Play Store distribution configured in this repository.
@@ -85,7 +85,7 @@ Android CI uploads a debug APK; iOS CI produces unsigned bundles for validation.
 In a second terminal on the home computer:
 
 ```sh
-famasock pair
+forwiroh pair
 ```
 
 Scan the displayed QR in the phone app. Review and confirm the invitation, then
@@ -94,7 +94,7 @@ Android can also accept a pasted invitation or display its own QR to another pee
 
 Invitations expire after five minutes and are single-use. If an invitation is
 consumed or rejected, create a new one. Pairing can be cancelled with
-`famasock cancel-pair` or the Android **Cancel outgoing pairing** control.
+`forwiroh cancel-pair` or the Android **Cancel outgoing pairing** control.
 
 ### 4. Open a service
 
@@ -107,13 +107,13 @@ Suppose the home computer has SSH on `127.0.0.1:22`. In the phone app, choose th
 | Remote destination / service | `127.0.0.1:22` |
 | Listen on all interfaces | Off |
 
-Now point an SSH client **on the phone** at `127.0.0.1`, port `2222`. Famasock carries
+Now point an SSH client **on the phone** at `127.0.0.1`, port `2222`. Forwiroh carries
 that TCP connection to SSH on the home computer. The destination's `127.0.0.1`
 means the **home computer**; the SSH client's `127.0.0.1` means the **phone**.
 
 For a home web app, use a local port such as `8080` and the remote destination
 where that app listens. Open `http://127.0.0.1:8080` in a browser on the phone.
-On iOS, switching away from Famasock suspends ordinary socket tunnels; use its
+On iOS, switching away from Forwiroh suspends ordinary socket tunnels; use its
 built-in TCP diagnostics for foreground checks or the separately configured VPN
 for background network access. Android's notification keeps its service active.
 
@@ -126,18 +126,18 @@ VPN. On iOS, stop VPN separately in its VPN screen.
 On the client, start another daemon with its own state directory:
 
 ```sh
-famasock serve --name laptop
+forwiroh serve --name laptop
 ```
 
 In another client terminal, accept the home invitation on standard input so its
 secret does not enter shell history. Paste the full invitation URI and press Return:
 
 ```sh
-famasock pair --accept -
+forwiroh pair --accept -
 # Approve the request on the home computer, then:
-famasock peers
-famasock connect home
-famasock forward home 2222:127.0.0.1:22
+forwiroh peers
+forwiroh connect home
+forwiroh forward home 2222:127.0.0.1:22
 ssh -p 2222 user@127.0.0.1
 ```
 
@@ -146,7 +146,7 @@ ID identifies a peer unambiguously. To define a reusable destination name, run
 this **on the machine hosting the service**:
 
 ```sh
-famasock allow laptop ssh 127.0.0.1:22
+forwiroh allow laptop ssh 127.0.0.1:22
 ```
 
 ### Reverse forward
@@ -155,13 +155,13 @@ Run this on the laptop to open a loopback listener on the home computer. Traffic
 arriving at home port `8080` reaches the laptop's development server on port `3000`:
 
 ```sh
-famasock reverse home 8080:127.0.0.1:3000
+forwiroh reverse home 8080:127.0.0.1:3000
 ```
 
 ### SOCKS5
 
 ```sh
-famasock socks home --listen 127.0.0.1:1080
+forwiroh socks home --listen 127.0.0.1:1080
 curl --socks5-hostname 127.0.0.1:1080 https://example.com/
 ```
 
@@ -172,16 +172,16 @@ implemented.
 ### Inspect and stop
 
 ```sh
-famasock status                 # peer connections and active tunnel IDs
-famasock stop TUNNEL_ID
-famasock disconnect home
-famasock rename home home-server
-famasock revoke home-server     # removes trust and terminates sessions
-famasock --version
+forwiroh status                 # peer connections and active tunnel IDs
+forwiroh stop TUNNEL_ID
+forwiroh disconnect home
+forwiroh rename home home-server
+forwiroh revoke home-server     # removes trust and terminates sessions
+forwiroh --version
 ```
 
 A disconnected TCP stream is never replayed. A new TCP connection may establish
-a new Iroh session. For relay diagnostics, `famasock serve --relay-only` disables
+a new Iroh session. For relay diagnostics, `forwiroh serve --relay-only` disables
 direct UDP and requires relay transport.
 
 ## Trust and access restrictions
@@ -192,7 +192,7 @@ Requests are logged by the receiving device. Unpaired devices cannot open tunnel
 
 Policies describe what a peer may access **on the device storing the policy**.
 To restrict a peer, save a policy such as this and apply it with
-`famasock policy PEER policy.json`:
+`forwiroh policy PEER policy.json`:
 
 ```json
 {
@@ -223,7 +223,7 @@ in the phone's VPN screen.
 
 The current transport uses QUIC datagrams with MTU 1100. Android uses `VpnService`;
 iOS uses `NEPacketTunnelProvider`, offering ports-only or full IPv4/IPv6 routing.
-Android leaves DNS on the system network and excludes Famasock's own transport
+Android leaves DNS on the system network and excludes Forwiroh's own transport
 sockets from VPN.
 
 macOS system/CLI VPN, SOCKS UDP and automatic VPN reconnect are not implemented.
@@ -241,10 +241,10 @@ See [desktop build and run instructions](docs/desktop.md).
 The example service runs as your normal user; ordinary socket tunnels need no root:
 
 ```sh
-mkdir -p ~/.local/state/famasock ~/.config/systemd/user
-cp packaging/famasock.service ~/.config/systemd/user/
+mkdir -p ~/.local/state/forwiroh ~/.config/systemd/user
+cp packaging/forwiroh.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now famasock
+systemctl --user enable --now forwiroh
 ```
 
 Edit the service if Cargo installs binaries outside `~/.cargo/bin` or you use a

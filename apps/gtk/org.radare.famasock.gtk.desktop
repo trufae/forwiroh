@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Famasock
-Comment=Pair devices and forward ports through encrypted connections
-Exec=famasock-gtk
-Icon=network-workgroup
-Terminal=false
-Categories=Network;
-StartupNotify=true
