@@ -67,6 +67,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Import Swift signing keys
+        run: |
+          curl -fSL https://www.swift.org/keys/all-keys.asc -o "$RUNNER_TEMP/swift-keys.asc"
+          gpg --batch --import "$RUNNER_TEMP/swift-keys.asc"
       - uses: swift-actions/setup-swift@v3
         with:
           swift-version: '6.2'
@@ -94,8 +98,15 @@ jobs:
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - run: sdkmanager 'ndk;28.0.13004108'
       - run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108" bash scripts/build-swift-core.sh aarch64-linux-android x86_64-linux-android
+      - name: Import Swift signing keys
+        run: |
+          curl -fSL https://www.swift.org/keys/all-keys.asc -o "$RUNNER_TEMP/swift-keys.asc"
+          gpg --batch --import "$RUNNER_TEMP/swift-keys.asc"
       - uses: swift-actions/setup-swift@v3
         with:
           swift-version: '6.4.1'
