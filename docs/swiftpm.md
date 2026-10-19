@@ -76,7 +76,7 @@ accepts a Sendable `[String: JSONValue]` for protocol extensions. Core errors th
 | --- | --- | --- |
 | macOS | Universal arm64 / x86_64 XCFramework slice | macOS 14 |
 | iOS | arm64 device; arm64 / x86_64 simulator slices | iOS 17 |
-| Linux | arm64 / x86_64 glibc and musl static archives | glibc 2.35 on x86_64; 2.39 on arm64, or musl |
+| Linux | arm64 / x86_64 glibc and musl static archives | glibc 2.39 or musl |
 | Android | arm64-v8a / x86_64 static archives | API 28 |
 
 Apple uses XCFrameworks. Linux and Android use SwiftPM's
