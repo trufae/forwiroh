@@ -72,8 +72,22 @@ import Testing
     let events = core!.events
     core = nil
     for await _ in events {}
-    let reopened = try await Forwiroh.open(stateDirectory: path, name: "new-owner")
-    await reopened.close()
+    // The open worker can briefly retain its result after resuming our task.
+    // If it performs deinit, the event reader can finish before shutdown frees
+    // the handle and its directory lock. Verify eventual cleanup, not ordering
+    // between those threads; explicit close() is the synchronous reuse barrier.
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while true {
+        do {
+            let reopened = try await Forwiroh.open(stateDirectory: path, name: "new-owner")
+            await reopened.close()
+            return
+        } catch let error as ForwirohError
+            where error.message == "state is already in use; use the running daemon"
+                && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
 }
 
 @Test(.timeLimit(.minutes(1))) func pairingAndTunnelCommands() async throws {
