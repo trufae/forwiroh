@@ -9,7 +9,7 @@ on:
         required: false
         type: string
   pull_request:
-    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'scripts/*swift*', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml']
+    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'scripts/*swift*', 'scripts/zig-musl-linker.sh', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml']
 permissions:
   contents: read
 concurrency:
@@ -36,11 +36,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: swift-actions/setup-swift@v3
         with:
-          swift-version: '6.2'
+          swift-version: '6.2.4'
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: bash scripts/build-swift-core.sh aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
       - run: python3 scripts/package-swift.py
       - run: swift test
@@ -73,11 +75,16 @@ jobs:
           gpg --batch --import "$RUNNER_TEMP/swift-keys.asc"
       - uses: swift-actions/setup-swift@v3
         with:
-          swift-version: '6.2'
+          swift-version: '6.2.4'
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.arch }}-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: '0.17.0'
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: bash scripts/build-swift-core.sh ${{ matrix.arch }}-unknown-linux-gnu ${{ matrix.arch }}-unknown-linux-musl
       - run: python3 scripts/package-swift.py
@@ -97,6 +104,8 @@ jobs:
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools

@@ -40,7 +40,11 @@ for target in "$@"; do
                 key=$(printf '%s' "$target" | tr '[:lower:]-' '[:upper:]_')
                 linker_key="CARGO_TARGET_${key}_LINKER"
                 cc_key="CC_${target//-/_}"
-                if [ -z "${!linker_key:-}" ]; then export "$linker_key=musl-gcc"; fi
+                if [ -z "${!linker_key:-}" ]; then
+                    command -v zig >/dev/null || { echo "Install Zig for musl linking, or set $linker_key" >&2; exit 1; }
+                    export FORWIROH_MUSL_TARGET="${target/-unknown/}"
+                    export "$linker_key=$PWD/scripts/zig-musl-linker.sh"
+                fi
                 if [ -z "${!cc_key:-}" ]; then export "$cc_key=musl-gcc"; fi
                 ;;
             *) echo "Unsupported Rust target: $target" >&2; exit 1 ;;

@@ -145,6 +145,8 @@ swift test
 
 `build-swift-core.sh` writes archives to `dist/libraries/<rust-target>/`. Run it
 on Linux for the Linux targets, or with `ANDROID_NDK_HOME` for Android. The release
+builds use Ubuntu 24.04, `musl-tools`, and Zig 0.17.0 for musl linking (or supply
+your own `CARGO_TARGET_<TARGET>_LINKER` and `CC_<target>` overrides). The release
 workflow builds all architectures, combines their outputs on macOS, tests an
 external SwiftPM consumer, and uploads the distributable packages. Musl archives
 are built with `-C target-feature=-crt-static` so the final Swift link owns the C
