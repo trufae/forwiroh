@@ -11,6 +11,40 @@ mod common;
 use common::*;
 
 #[tokio::test]
+async fn pairing_policy_applies_before_either_peer_can_access_services() {
+    let (_a, _b, home, phone) = nodes().await;
+    home.command(forwiroh::control::Command::PairingPolicy {
+        policy: Policy {
+            restricted: true,
+            services: [("pmai-acp".into(), "127.0.0.1:19283".into())].into(),
+            ..Default::default()
+        },
+    })
+    .await
+    .unwrap();
+    phone
+        .set_pairing_policy(Policy {
+            restricted: true,
+            ..Default::default()
+        })
+        .unwrap();
+    let home_id = pair(&home, &phone).await;
+    let phone_id = phone.endpoint.id().to_string();
+    assert_eq!(home.snapshot()["peers"][0]["policy"]["restricted"], true);
+    assert_eq!(phone.snapshot()["peers"][0]["policy"]["restricted"], true);
+    assert_eq!(
+        phone.services(&home_id).await.unwrap()["services"],
+        serde_json::json!(["pmai-acp"])
+    );
+    assert_eq!(
+        home.services(&phone_id).await.unwrap()["services"],
+        serde_json::json!([])
+    );
+    phone.shutdown().await;
+    home.shutdown().await;
+}
+
+#[tokio::test]
 async fn pairing_requires_approval_and_is_single_use() {
     let (_a, _b, home, phone) = nodes().await;
     let invite = home.invitation().unwrap();

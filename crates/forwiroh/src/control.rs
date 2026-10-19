@@ -20,6 +20,9 @@ pub enum Command {
     },
     CancelPair,
     Pending,
+    PairingPolicy {
+        policy: Policy,
+    },
     Approve {
         id: String,
         accept: bool,
@@ -97,6 +100,10 @@ impl Node {
                 Value::Null
             }
             Command::Pending => self.pending(),
+            Command::PairingPolicy { policy } => {
+                self.set_pairing_policy(policy)?;
+                Value::Null
+            }
             Command::Approve { id, accept } => {
                 self.approve(&id, accept)?;
                 Value::Null

@@ -92,7 +92,9 @@ def main():
         entries = []
         if any(t in APPLE for t in libraries):
             include = staging / "include"
-            headers(include)
+            # Xcode copies static-library headers into a shared include directory.
+            # Namespace the module map so other binary packages can coexist.
+            headers(include / "CForwiroh")
             command = ["xcodebuild", "-create-xcframework"]
             for group in ("macos", "ios", "simulator"):
                 inputs = [str(path) for t, path in libraries.items() if APPLE.get(t) == group]

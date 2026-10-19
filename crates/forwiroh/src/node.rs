@@ -121,6 +121,7 @@ pub struct Node {
     pub(crate) store: Mutex<Store>,
     invitations: Mutex<HashMap<String, Invitation>>,
     pairing: Mutex<Option<CancellationToken>>,
+    pairing_policy: Mutex<Policy>,
     pending: Mutex<HashMap<String, Pending>>,
     connections: Mutex<HashMap<String, Vec<Connection>>>,
     dialing: tokio::sync::Mutex<()>,
@@ -192,6 +193,7 @@ impl Node {
             store: Mutex::new(store),
             invitations: Mutex::default(),
             pairing: Mutex::default(),
+            pairing_policy: Mutex::default(),
             pending: Mutex::default(),
             connections: Mutex::default(),
             dialing: tokio::sync::Mutex::new(()),
@@ -250,6 +252,13 @@ impl Node {
         );
         invites.insert(invite.id.clone(), invite.clone());
         Ok(invite)
+    }
+    /// Set permissions for newly paired peers before creating/redeeming invites.
+    /// Existing peers retain their policy. This setting lasts until shutdown.
+    pub fn set_pairing_policy(&self, policy: Policy) -> Result<()> {
+        policy.validate()?;
+        *self.pairing_policy.lock().unwrap() = policy;
+        Ok(())
     }
     pub fn cancel_invitation(&self, id: &str) {
         self.invitations.lock().unwrap().remove(id);
@@ -425,7 +434,7 @@ impl Node {
             name: name.clone(),
             device,
             addr,
-            policy: Policy::default(),
+            policy: self.pairing_policy.lock().unwrap().clone(),
         };
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(
@@ -530,7 +539,7 @@ impl Node {
                 name,
                 device: "computer".into(),
                 addr,
-                policy: Policy::default(),
+                policy: self.pairing_policy.lock().unwrap().clone(),
             };
             self.store.lock().unwrap().update(|s| {
                 s.peers.entry(id.clone()).or_insert(peer);

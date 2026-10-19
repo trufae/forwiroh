@@ -96,6 +96,8 @@ import Testing
     let server = try await Forwiroh.open(stateDirectory: root.appendingPathComponent("server"), name: "server")
     let client = try await Forwiroh.open(stateDirectory: root.appendingPathComponent("client"), name: "client")
     do {
+        try await server.setPairingPolicy(PeerPolicy(restricted: true, services: ["pmai-acp": "127.0.0.1:19283"]))
+        try await client.setPairingPolicy(PeerPolicy(restricted: true))
         let invitation = try await server.invite()
         let pairing = Task { try await client.pair(invitation: invitation.uri, device: "SwiftPM") }
         var pending: [PairingRequest] = []
@@ -114,6 +116,8 @@ import Testing
         }
         let peer = try await pairing.value
         #expect(try await client.status().peers.first?.id == peer)
+        #expect(try await client.status().peers.first?.policy.restricted == true)
+        #expect(try await server.status().peers.first?.policy.services == ["pmai-acp": "127.0.0.1:19283"])
         let forward = try await client.forward(peer: peer, listen: "127.0.0.1:0", service: "127.0.0.1:22")
         let socks = try await client.socks(peer: peer, listen: "127.0.0.1:0")
         let tunnels = try await client.status().tunnels

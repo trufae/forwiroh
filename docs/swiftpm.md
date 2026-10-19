@@ -191,3 +191,5 @@ The source tag itself remains a Rust source checkout. Consumers use the full ZIP
 offline or the smaller remote ZIP, which downloads the binaries on first build.
 A Git URL dependency still requires the separate distribution repository/branch
 described above; publishing assets does not add a manifest to the source tag.
+
+Use `try await node.setPairingPolicy(PeerPolicy(restricted: true, services: ["pmai-acp": "127.0.0.1:19283"]))` before inviting peers (SDK 0.1.1+). Client-only endpoints can use an empty restricted policy. This avoids a period of unrestricted access immediately after pairing. Existing peer permissions are unchanged.
