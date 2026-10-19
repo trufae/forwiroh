@@ -316,7 +316,7 @@ impl Node {
         let capabilities = self.services(peer).await?;
         ensure!(
             capabilities["vpn_packet_format"].as_u64() == Some(2),
-            "server VPN is outdated; rebuild and restart Forwiroh 0.2.0 or newer on the server"
+            "server VPN is outdated; rebuild and restart Forwiroh 0.1.0 or newer on the server"
         );
         let session = crate::pairing::random()?;
         // Never capture an already selected local direct Iroh address.

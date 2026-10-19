@@ -7,7 +7,9 @@ is required (pmai's Android toolchain is already newer).
 
 ## Use from pmai
 
-Download and unpack `Forwiroh-<version>-swiftpm.zip` into a stable directory. In
+Download `Forwiroh-<version>-swiftpm.zip` from
+[GitHub Releases](https://github.com/trufae/forwiroh/releases) and unpack it into
+a stable directory. In
 `pmai/MaiCore/Package.swift`, add the package and the product to the target that
 will own the networking endpoint:
 
@@ -164,5 +166,26 @@ can then use `.package(url: "YOUR_DISTRIBUTION_REPOSITORY", from: "VERSION")`.
 Include `Artifacts/manifest.json` in that distribution commit. Do not tag the
 unpackaged Rust source tree as a ready-to-consume Swift package.
 
-No release URL or checksum is fabricated by this repository. Until assets and a
-distribution tag are published, use the prepared local checkout or full ZIP.
+### Publish a release
+
+Set the workspace, lockfile, and application versions to the same value, and add
+`docs/releases/<version>.md`. Check them before committing:
+
+```sh
+python3 scripts/check-release.py v0.1.0
+git tag -a v0.1.0 -m "Forwiroh 0.1.0"
+git push origin main
+git push origin --tags
+```
+
+The tag must match the workspace version. The SwiftPM workflow builds and tests
+all platforms, requires all eleven native variants, generates the remote
+manifest using that tag's GitHub asset URLs, verifies checksums, then creates
+the release and uploads both package ZIPs, both binary ZIPs, and `SHA256SUMS`.
+Only the final publishing job has permission to write releases. Pull requests
+and manual runs upload Actions artifacts without publishing a release.
+
+The source tag itself remains a Rust source checkout. Consumers use the full ZIP
+offline or the smaller remote ZIP, which downloads the binaries on first build.
+A Git URL dependency still requires the separate distribution repository/branch
+described above; publishing assets does not add a manifest to the source tag.

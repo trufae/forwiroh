@@ -64,8 +64,9 @@ Swift 6.2 or newer is required.
 | Linux | arm64 / x86_64, glibc and musl | glibc 2.35 on x86_64; 2.39 on arm64, or musl |
 | Android | arm64-v8a / x86_64 | API 28 |
 
-Use a prepared checkout containing `Artifacts/`, or unpack
-`Forwiroh-<version>-swiftpm.zip`. In the sibling project's
+Download `Forwiroh-<version>-swiftpm.zip` from
+[GitHub Releases](https://github.com/trufae/forwiroh/releases) and unpack it, or
+use a prepared checkout containing `Artifacts/`. In the sibling project's
 `pmai/MaiCore/Package.swift`, add the dependency and attach its product to the
 target that will own the endpoint:
 
@@ -112,8 +113,9 @@ clone needs a maintainer build before SwiftPM can consume it. The
 [build and release instructions](docs/swiftpm.md#maintainer-builds-and-binary-releases)
 and [SwiftPM workflow](.github/workflows/swiftpm.yml) produce Apple XCFrameworks,
 Linux/Android static library bundles, and complete offline SwiftPM ZIPs in
-`dist/`. No hosted binary release or SwiftPM distribution tag has been published;
-use the prepared local checkout or full ZIP until then.
+`dist/`. Pushing a `vX.Y.Z` tag runs the complete build and test matrix, then
+creates a GitHub release with the ZIP assets and `SHA256SUMS`. Use the SwiftPM ZIP
+asset for integration; GitHub's source archives do not contain the binaries.
 
 Validation includes six Swift tests on macOS and Linux, external SwiftPM
 consumers, an unpacked standalone package, iOS device/simulator linking, and

@@ -1,6 +1,6 @@
 # VPN and background forwarding
 
-Use Forwiroh 0.2.0 or newer on **both** the iPhone and server. This release changes
+Use Forwiroh 0.1.0 or newer on **both** the iPhone and server. This release changes
 VPN packet framing and the MTU. Existing identities and pairing survive an
 upgrade; there is no need to scan another QR code.
 

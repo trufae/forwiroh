@@ -116,7 +116,7 @@ locked or inaccessible: that is an error requiring user attention.
 3. Check both identities, approve/reject/expire/cancel pairing, restart the app.
 4. Forward a service from a Linux host, including a large response and half-close.
 5. Enable optional access restrictions and verify omitted services/SOCKS destinations are refused.
-6. Upgrade the server to 0.2.0, run it as a normal user without TUN, start VPN.
+6. Upgrade the server to 0.1.0, run it as a normal user without TUN, start VPN.
    Test full IPv4/IPv6 internet TCP/UDP and DNS, then ports-only virtual hosts.
    Forward localhost:2222 to server localhost:22 and use 10.250.0.3:2222 from another app.
 7. Lock the phone; test traffic, Wi-Fi/cellular changes, sleep and reconnection.

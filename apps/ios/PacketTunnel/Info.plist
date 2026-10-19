@@ -5,7 +5,7 @@
 <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
 <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
 <key>CFBundlePackageType</key><string>XPC!</string>
-<key>CFBundleShortVersionString</key><string>0.2.0</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>ForwirohAppGroup</key><string>$(FORWIROH_APP_GROUP)</string>
 <key>ForwirohKeychainGroup</key><string>$(AppIdentifierPrefix)$(FORWIROH_KEYCHAIN_GROUP)</string>

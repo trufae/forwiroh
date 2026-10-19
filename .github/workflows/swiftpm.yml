@@ -1,5 +1,7 @@
-name: SwiftPM binaries
+name: SwiftPM binaries and releases
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       release_base_url:
@@ -7,19 +9,32 @@ on:
         required: false
         type: string
   pull_request:
-    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'scripts/*swift*', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml']
+    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'scripts/*swift*', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml']
 permissions:
   contents: read
 concurrency:
   group: swiftpm-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check release versions and tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          args=()
+          if [ "$REF_TYPE" = tag ]; then args+=("$REF_NAME"); fi
+          python3 scripts/check-release.py "${args[@]}"
   apple:
+    needs: validate
     runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
+      - uses: swift-actions/setup-swift@v3
         with:
           swift-version: '6.2'
       - uses: dtolnay/rust-toolchain@stable
@@ -39,6 +54,7 @@ jobs:
           name: libraries-apple
           path: dist/libraries/
   linux:
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -51,7 +67,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
+      - uses: swift-actions/setup-swift@v3
         with:
           swift-version: '6.2'
       - uses: dtolnay/rust-toolchain@stable
@@ -68,6 +84,7 @@ jobs:
           name: libraries-linux-${{ matrix.arch }}
           path: dist/libraries/
   android:
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -79,7 +96,7 @@ jobs:
       - uses: android-actions/setup-android@v3
       - run: sdkmanager 'ndk;28.0.13004108'
       - run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108" bash scripts/build-swift-core.sh aarch64-linux-android x86_64-linux-android
-      - uses: swift-actions/setup-swift@v2
+      - uses: swift-actions/setup-swift@v3
         with:
           swift-version: '6.4.1'
       - name: Install matching Android Swift SDK and NDK
@@ -111,8 +128,12 @@ jobs:
       - name: Assemble all release binaries
         env:
           RELEASE_BASE_URL: ${{ inputs.release_base_url }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           args=(--require-all)
+          if [ "$REF_TYPE" = tag ]; then
+            RELEASE_BASE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          fi
           if [ -n "$RELEASE_BASE_URL" ]; then args+=(--release-base-url "$RELEASE_BASE_URL"); fi
           python3 scripts/package-swift.py "${args[@]}"
       - uses: actions/upload-artifact@v4
@@ -121,3 +142,28 @@ jobs:
           path: |
             dist/*.zip
             dist/SHA256SUMS
+          if-no-files-found: error
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: assemble
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Forwiroh-SwiftPM
+          path: dist
+      - name: Verify release assets
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
+      - name: Create GitHub release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/*.zip dist/SHA256SUMS \
+            --verify-tag --title "Forwiroh ${RELEASE_TAG#v}" \
+            --notes-file "docs/releases/${RELEASE_TAG#v}.md"
