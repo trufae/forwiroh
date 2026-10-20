@@ -122,6 +122,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     f.write_all(bytes)?;
     f.sync_all()?;
     fs::rename(&tmp, path)?;
+    #[cfg(unix)]
     File::open(path.parent().context("missing parent")?)?.sync_all()?;
     Ok(())
 }
@@ -130,20 +131,21 @@ impl Store {
     pub fn open(path: &Path, name: &str, external_key: Option<[u8; 32]>) -> Result<Self> {
         ensure!(!path.is_symlink(), "state directory must not be a symlink");
         fs::create_dir_all(path)?;
+        #[cfg(windows)]
+        crate::windows::OwnerSecurity::new()?.apply(path)?;
+        let mut lock_options = OpenOptions::new();
+        lock_options
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false);
         #[cfg(unix)]
         {
             use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
             fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-            let _ = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(path.join("lock"));
+            lock_options.mode(0o600);
         }
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path.join("lock"))?;
+        let lock = lock_options.open(path.join("lock"))?;
         lock.try_lock_exclusive()
             .context("state is already in use; use the running daemon")?;
         let key = if let Some(key) = external_key {

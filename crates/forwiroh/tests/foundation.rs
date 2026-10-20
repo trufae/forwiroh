@@ -28,15 +28,18 @@ fn identity_is_persistent_and_exclusive() {
     let store = Store::open(dir.path(), "other", None).unwrap();
     assert_eq!(id, store.key.public());
     assert_eq!(store.state.name, "home");
-    use std::os::unix::fs::PermissionsExt;
-    assert_eq!(
-        std::fs::metadata(dir.path().join("identity"))
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
-    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(dir.path().join("identity"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
 }
 #[test]
 fn external_key_never_written_to_identity_file() {

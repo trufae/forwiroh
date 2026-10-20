@@ -237,9 +237,10 @@ git push origin --tags
 ```
 
 The tag must match the workspace version. The SwiftPM workflow builds and tests
-all platforms, requires all eleven native variants, generates the remote
+all platforms, requires all eleven SDK variants and all eight CLI targets, generates the remote
 manifest using that tag's GitHub asset URLs, verifies checksums, then creates
-the release and uploads both package ZIPs, both binary ZIPs, and `SHA256SUMS`.
+the release and uploads both package ZIPs, both binary ZIPs, the CLI archives,
+both installers, `SHA256SUMS`, and `CLI-SHA256SUMS`.
 Only the final publishing job has permission to write releases. Pull requests
 and manual runs upload Actions artifacts without publishing a release.
 

@@ -42,12 +42,49 @@ traffic. After pairing, choose one of the connection types above.
 | iPhone / iPad, iOS 17+ | Native SwiftUI app in [`apps/ios`](apps/ios): QR scanner, peers, tunnels, TCP diagnostics and VPN | Ordinary socket tunnels require the app in the foreground; VPN runs in a Packet Tunnel extension. |
 | Linux | `forwiroh` CLI and daemon | Keep `serve` running, optionally as a user systemd service. Supports a pre-provisioned VPN TUN. |
 | macOS | `forwiroh` CLI and daemon; native SwiftUI app in [`apps/macos`](apps/macos) | Keep `serve` running. CLI VPN is not implemented. |
+| Windows 10/11 | Native `forwiroh.exe` CLI and daemon | Keep `serve` running. Uses an owner-only local named pipe; CLI VPN is not implemented. |
 
 The mobile apps and CLI share the same Rust networking and authorization core.
 Android stores the identity encrypted with a Keystore key; iOS uses Keychain.
 Saved peers persist. iOS restores saved forward, SOCKS and reverse profiles in
 its VPN extension; other active tunnel configurations must be recreated after a
 networking restart.
+
+## Install the CLI
+
+Linux, macOS, and Android (Termux):
+
+```sh
+curl -fsSL https://github.com/trufae/forwiroh/releases/latest/download/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://github.com/trufae/forwiroh/releases/latest/download/install.ps1 | iex
+```
+
+The installers select x86_64 or arm64, pin the latest stable release, and verify
+the archive against its `CLI-SHA256SUMS` before installing. The shell installer
+uses `~/.local/bin` (or `$PREFIX/bin` in Termux); PowerShell uses
+`%LOCALAPPDATA%\forwiroh\bin` and adds it to your user PATH. Set
+`FORWIROH_INSTALL_DIR` to choose another directory, or `FORWIROH_VERSION=vX.Y.Z`
+to pin a version. No Rust compiler is needed.
+
+Manual downloads are under [Releases](https://github.com/trufae/forwiroh/releases):
+
+| CLI platform | Release assets | Requirements |
+| --- | --- | --- |
+| Linux x86_64 / arm64 | `forwiroh-{x86_64,aarch64}-unknown-linux-musl.tar.gz` | Static musl executables; glibc is not required. |
+| macOS Intel / Apple Silicon | `forwiroh-{x86_64,aarch64}-apple-darwin.tar.gz` | macOS 14+. |
+| Android x86_64 / arm64 | `forwiroh-{x86_64,aarch64}-linux-android.tar.gz` | Android 9+ (API 28), a shell such as Termux. |
+| Windows x86_64 / arm64 | `forwiroh-{x86_64,aarch64}-pc-windows-msvc.zip` | Windows 10/11. |
+
+These are standalone CLI downloads. Android's native app and its VPN service
+are separate. All platforms support rootless TCP forwarding, reverse forwarding,
+SOCKS, and use as an exit peer; CLI TUN creation is available only on Linux.
+Release CLIs use the `min-size` profile: size optimization, full LTO, stripped
+symbols, and aborting the process on panic. See the [size measurements](docs/swiftpm.md#binary-size).
 
 ## Embed with SwiftPM
 
@@ -114,7 +151,8 @@ clone needs a maintainer build before SwiftPM can consume it. The
 and [SwiftPM workflow](.github/workflows/swiftpm.yml) produce Apple XCFrameworks,
 Linux/Android static library bundles, and complete offline SwiftPM ZIPs in
 `dist/`. Pushing a `vX.Y.Z` tag runs the complete build and test matrix, then
-creates a GitHub release with the ZIP assets and `SHA256SUMS`. Use the SwiftPM ZIP
+creates a GitHub release with SDK ZIPs, CLI archives for all eight targets, the
+installers, `SHA256SUMS` and `CLI-SHA256SUMS`. Use the SwiftPM ZIP
 asset for integration; GitHub's source archives do not contain the binaries.
 
 Validation includes six Swift tests on macOS and Linux, external SwiftPM
@@ -124,9 +162,15 @@ Android device runtime testing is still outstanding.
 
 ## Quick start: phone → home computer
 
-### 1. Build the home daemon
+### 1. Install the home daemon
 
-Install stable Rust (minimum 1.91), then:
+Use the CLI installer above, then run:
+
+```sh
+forwiroh serve --name home
+```
+
+To build from source instead, install stable Rust (minimum 1.91), then:
 
 ```sh
 git clone https://github.com/trufae/forwiroh.git
@@ -141,6 +185,7 @@ they do not launch another copy of the identity.
 By default, state lives in `$XDG_STATE_HOME/forwiroh` or
 `~/.local/state/forwiroh`. To use a different directory, pass `--state DIRECTORY`
 to **every** command, including `serve`.
+On Windows, the default state directory is `%LOCALAPPDATA%\forwiroh`.
 
 ### 2. Install the phone app
 

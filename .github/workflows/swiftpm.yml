@@ -9,13 +9,15 @@ on:
         required: false
         type: string
   pull_request:
-    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'scripts/*swift*', 'scripts/zig-musl-linker.sh', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml']
+    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'scripts/*swift*', 'scripts/*cli*', 'scripts/test-install.py', 'install.*', 'scripts/zig-musl-linker.sh', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml', '.github/workflows/cli.yml']
 permissions:
   contents: read
 concurrency:
   group: swiftpm-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  cli:
+    uses: ./.github/workflows/cli.yml
   validate:
     runs-on: ubuntu-24.04
     steps:
@@ -138,7 +140,7 @@ jobs:
           name: libraries-android
           path: dist/libraries/
   assemble:
-    needs: [apple, linux, android]
+    needs: [apple, linux, android, cli]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -158,11 +160,19 @@ jobs:
           fi
           if [ -n "$RELEASE_BASE_URL" ]; then args+=(--release-base-url "$RELEASE_BASE_URL"); fi
           python3 scripts/package-swift.py "${args[@]}"
+      - uses: actions/download-artifact@v4
+        with:
+          name: Forwiroh-CLI
+          path: dist
       - uses: actions/upload-artifact@v4
         with:
           name: Forwiroh-SwiftPM
           path: |
             dist/*.zip
+            dist/*.tar.gz
+            dist/install.sh
+            dist/install.ps1
+            dist/CLI-SHA256SUMS
             dist/SHA256SUMS
           if-no-files-found: error
   release:
@@ -179,13 +189,13 @@ jobs:
           path: dist
       - name: Verify release assets
         working-directory: dist
-        run: sha256sum --check SHA256SUMS
+        run: sha256sum --check SHA256SUMS CLI-SHA256SUMS
       - name: Create GitHub release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" dist/*.zip dist/SHA256SUMS \
+          gh release create "$RELEASE_TAG" dist/*.zip dist/*.tar.gz dist/SHA256SUMS dist/CLI-SHA256SUMS dist/install.sh dist/install.ps1 \
             --verify-tag --title "Forwiroh ${RELEASE_TAG#v}" \
             --notes-file "docs/releases/${RELEASE_TAG#v}.md"

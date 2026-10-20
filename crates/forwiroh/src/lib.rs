@@ -38,3 +38,5 @@ pub mod vpn;
 mod vpn_tests;
 
 pub mod ffi;
+#[cfg(windows)]
+pub mod windows;

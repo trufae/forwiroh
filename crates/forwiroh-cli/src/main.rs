@@ -6,10 +6,9 @@ use std::{
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
 };
-use tokio::{
-    net::{UnixListener, UnixStream},
-    task::JoinSet,
-};
+use tokio::task::JoinSet;
+
+mod ipc;
 
 #[derive(Parser)]
 #[command(name = "forwiroh", version = forwiroh::VERSION, about = "Secure paired-device networking over Iroh")]
@@ -99,6 +98,10 @@ enum Cmd {
     Version,
 }
 fn default_dir() -> PathBuf {
+    #[cfg(windows)]
+    if let Some(path) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(path).join("forwiroh");
+    }
     std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -108,7 +111,7 @@ fn default_dir() -> PathBuf {
         .join("forwiroh")
 }
 async fn rpc(path: &Path, command: &Command) -> Result<Value> {
-    let mut socket = UnixStream::connect(path.join("control.sock"))
+    let mut socket = ipc::connect(path)
         .await
         .context("start `forwiroh serve` first (same --state)")?;
     wire::write_limit(&mut socket, command, wire::MAX_CONTROL).await?;
@@ -124,13 +127,7 @@ async fn rpc(path: &Path, command: &Command) -> Result<Value> {
 }
 async fn serve(path: &Path, name: &str, mode: TransportMode) -> Result<()> {
     let node = Node::open(path, name, None, mode).await?;
-    let sockpath = path.join("control.sock");
-    if sockpath.exists() {
-        std::fs::remove_file(&sockpath)?;
-    }
-    let listener = UnixListener::bind(&sockpath)?;
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&sockpath, std::fs::Permissions::from_mode(0o600))?;
+    let mut listener = ipc::Listener::bind(path)?;
     println!(
         "Forwiroh server started\nVersion: {}\nIdentity: {}\nTransport: Iroh\nStatus: Listening",
         forwiroh::VERSION,
@@ -138,15 +135,16 @@ async fn serve(path: &Path, name: &str, mode: TransportMode) -> Result<()> {
     );
     let mut clients = JoinSet::new();
     let mut events = node.subscribe();
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let terminate = ipc::terminate();
+    tokio::pin!(terminate);
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
-            _ = terminate.recv() => break,
+            result = &mut terminate => { result?; break; },
             Some(_) = clients.join_next(), if !clients.is_empty() => {},
             event = events.recv() => { if let Ok(e) = event { eprintln!("{e}"); } },
             accepted = listener.accept(), if clients.len() < 16 => {
-                let (mut socket,_) = accepted?; let node = node.clone();
+                let mut socket = accepted?; let node = node.clone();
                 clients.spawn(async move {
                     let command: Command = tokio::time::timeout(wire::SETUP_TIMEOUT,wire::read_limit(&mut socket, wire::MAX_CONTROL)).await??;
                     let result = match node.command(command).await { Ok(v) => json!({"data":v}), Err(e) => json!({"error":e.to_string()}) };
@@ -158,11 +156,13 @@ async fn serve(path: &Path, name: &str, mode: TransportMode) -> Result<()> {
     clients.abort_all();
     while clients.join_next().await.is_some() {}
     node.shutdown().await;
-    std::fs::remove_file(sockpath)?;
+    drop(listener);
+    ipc::cleanup(path)?;
     Ok(())
 }
 // A cancellable nonblocking terminal read: never leave a spawn_blocking stdin
 // worker alive after Ctrl-C or after an invitation expires.
+#[cfg(unix)]
 async fn terminal_line() -> Result<String> {
     use std::{
         io::{ErrorKind, Read},
@@ -193,6 +193,58 @@ async fn terminal_line() -> Result<String> {
             Err(e) if e.kind() == ErrorKind::Interrupted => {}
             Err(e) => return Err(e.into()),
         }
+    }
+}
+
+#[cfg(windows)]
+async fn terminal_line() -> Result<String> {
+    use crossterm::{
+        event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+        terminal,
+    };
+    use std::io::{IsTerminal, Write};
+    ensure!(
+        std::io::stdin().is_terminal(),
+        "approval requires a terminal"
+    );
+    terminal::enable_raw_mode()?;
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let _ = terminal::disable_raw_mode();
+        }
+    }
+    let _restore = Restore;
+    let mut answer = String::new();
+    loop {
+        if event::poll(std::time::Duration::ZERO)?
+            && let Event::Key(key) = event::read()?
+        {
+            if key.kind == KeyEventKind::Release {
+                continue;
+            }
+            match key.code {
+                KeyCode::Enter => {
+                    println!("\r");
+                    return Ok(answer);
+                }
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    anyhow::bail!("pairing cancelled");
+                }
+                KeyCode::Char(c) => {
+                    answer.push(c);
+                    print!("{c}");
+                }
+                KeyCode::Backspace if !answer.is_empty() => {
+                    answer.pop();
+                    print!("\x08 \x08");
+                }
+                _ => {}
+            }
+            ensure!(answer.len() <= 256, "answer too long");
+            std::io::stdout().flush()?;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 }
 async fn pair(path: &Path, accept: Option<String>) -> Result<()> {
