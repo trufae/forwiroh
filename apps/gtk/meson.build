@@ -1,4 +1,4 @@
-project('forwiroh-gtk', ['vala', 'c'], version: '0.1.1', meson_version: '>=0.61')
+project('forwiroh-gtk', ['vala', 'c'], version: '0.1.2', meson_version: '>=0.61')
 gtk = dependency('gtk4', version: '>=4.8')
 json = dependency('json-glib-1.0', version: '>=1.6')
 threads = dependency('threads')

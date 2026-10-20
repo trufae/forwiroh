@@ -72,6 +72,9 @@ jobs:
             echo "CARGO_TARGET_${key}_LINKER=$bin/${RUST_TARGET}28-clang" >> "$GITHUB_ENV"
             echo "CC_${RUST_TARGET//-/_}=$bin/${RUST_TARGET}28-clang" >> "$GITHUB_ENV"
             echo "AR_${RUST_TARGET//-/_}=$bin/llvm-ar" >> "$GITHUB_ENV"
+          elif [[ "$RUST_TARGET" == *windows* ]]; then
+            # A downloaded CLI must run without installing the VC++ runtime.
+            echo "CARGO_TARGET_${key}_RUSTFLAGS=-C target-feature=+crt-static" >> "$GITHUB_ENV"
           fi
       - name: Build smallest CLI
         run: cargo build --locked --profile min-size -p forwiroh-cli --target '${{ matrix.target }}'
