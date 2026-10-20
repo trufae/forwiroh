@@ -36,6 +36,9 @@ jobs:
     timeout-minutes: 40
     env:
       MACOSX_DEPLOYMENT_TARGET: '14.0'
+      # netdev catches a missing JNI context in standalone Android processes.
+      # It needs unwinding; panic=abort would terminate the CLI during startup.
+      FORWIROH_CLI_PROFILE: ${{ contains(matrix.target, 'android') && 'release' || 'min-size' }}
     defaults:
       run:
         shell: bash
@@ -76,8 +79,8 @@ jobs:
             # A downloaded CLI must run without installing the VC++ runtime.
             echo "CARGO_TARGET_${key}_RUSTFLAGS=-C target-feature=+crt-static" >> "$GITHUB_ENV"
           fi
-      - name: Build smallest CLI
-        run: cargo build --locked --profile min-size -p forwiroh-cli --target '${{ matrix.target }}'
+      - name: Build size-optimized CLI
+        run: cargo build --locked --profile "$FORWIROH_CLI_PROFILE" -p forwiroh-cli --target '${{ matrix.target }}'
       - name: Test native CLI and persistence
         if: ${{ !contains(matrix.target, 'android') }}
         env:
@@ -85,11 +88,11 @@ jobs:
         run: |
           extension=
           if [[ "$RUST_TARGET" == *windows* ]]; then extension=.exe; fi
-          python3 scripts/cli-portable-smoke.py "target/$RUST_TARGET/min-size/forwiroh$extension"
+          python3 scripts/cli-portable-smoke.py "target/$RUST_TARGET/$FORWIROH_CLI_PROFILE/forwiroh$extension"
           cargo test --locked -p forwiroh --test foundation --target "$RUST_TARGET"
       - name: Full Unix CLI integration
         if: runner.os != 'Windows' && !contains(matrix.target, 'android')
-        run: python3 scripts/cli-smoke.py 'target/${{ matrix.target }}/min-size/forwiroh'
+        run: python3 scripts/cli-smoke.py 'target/${{ matrix.target }}/${{ env.FORWIROH_CLI_PROFILE }}/forwiroh'
       - name: Enable Android emulator acceleration
         if: matrix.target == 'x86_64-linux-android'
         run: sudo chmod 666 /dev/kvm
@@ -101,18 +104,14 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: |
-            adb push target/x86_64-linux-android/min-size/forwiroh /data/local/tmp/forwiroh-cli
-            adb shell chmod 700 /data/local/tmp/forwiroh-cli
-            adb shell /data/local/tmp/forwiroh-cli --version
-            adb shell 'set -eu; state=$(mktemp -d /data/local/tmp/forwiroh-test.XXXXXX); /data/local/tmp/forwiroh-cli --state "$state" serve --offline --name android-cli >"$state/log" 2>&1 & daemon=$!; trap '\''kill "$daemon" 2>/dev/null || true; wait "$daemon" 2>/dev/null || true; rm -rf "$state"'\'' EXIT; attempts=0; until /data/local/tmp/forwiroh-cli --state "$state" status; do attempts=$((attempts + 1)); if [ "$attempts" -ge 30 ]; then cat "$state/log"; exit 1; fi; sleep 1; done'
+          script: sh scripts/cli-android-smoke.sh target/x86_64-linux-android/${{ env.FORWIROH_CLI_PROFILE }}/forwiroh
       - name: Package CLI
         env:
           RUST_TARGET: ${{ matrix.target }}
         run: |
           extension=
           if [[ "$RUST_TARGET" == *windows* ]]; then extension=.exe; fi
-          python3 scripts/package-cli.py --target "$RUST_TARGET" --binary "target/$RUST_TARGET/min-size/forwiroh$extension"
+          python3 scripts/package-cli.py --target "$RUST_TARGET" --binary "target/$RUST_TARGET/$FORWIROH_CLI_PROFILE/forwiroh$extension"
       - name: Test PowerShell installer
         if: runner.os == 'Windows'
         shell: pwsh

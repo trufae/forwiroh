@@ -35,14 +35,18 @@ jobs:
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
       - name: Build installable debug APK with both ABIs
         working-directory: apps/android
-        run: ./gradlew --no-daemon assembleDebug lintDebug
+        run: ./gradlew --no-daemon assembleDebug lintDebug -PsplitApks
       - name: Verify and package APK
         run: |
           mkdir -p dist/android
-          cp apps/android/app/build/outputs/apk/debug/app-debug.apk dist/android/forwiroh-android-debug.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose dist/android/forwiroh-android-debug.apk
+          for abi in arm64-v8a x86_64 universal; do
+            name="forwiroh-android-$abi-debug.apk"
+            if [ "$abi" = universal ]; then name=forwiroh-android-debug.apk; fi
+            cp "apps/android/app/build/outputs/apk/debug/app-$abi-debug.apk" "dist/android/$name"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "dist/android/$name"
+          done
           cd dist/android
-          sha256sum forwiroh-android-debug.apk > ANDROID-SHA256SUMS
+          sha256sum ./*.apk > ANDROID-SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: Forwiroh-Android

@@ -77,6 +77,8 @@ The Android app is available separately as `forwiroh-android-debug.apk`, built
 from `apps/android` with arm64-v8a and x86_64 support. Install it directly on
 Android 8+ or use `adb install -r forwiroh-android-debug.apk`. It uses Android's
 automatic debug signing, with no release key configuration.
+Smaller downloads are available as `forwiroh-android-arm64-v8a-debug.apk` for
+arm64 phones and `forwiroh-android-x86_64-debug.apk` for x86_64 devices/emulators.
 
 | CLI platform | Release assets | Requirements |
 | --- | --- | --- |
@@ -86,10 +88,13 @@ automatic debug signing, with no release key configuration.
 | Windows x86_64 / arm64 | `forwiroh-{x86_64,aarch64}-pc-windows-msvc.zip` | Windows 10/11. |
 
 These are standalone CLI downloads. Android's native app and its VPN service
-are separate. All platforms support rootless TCP forwarding, reverse forwarding,
+are separate. The Android CLI uses Iroh's public DNS fallback resolvers without
+requiring a Java application context. All platforms support rootless TCP forwarding, reverse forwarding,
 SOCKS, and use as an exit peer; CLI TUN creation is available only on Linux.
-Release CLIs use the `min-size` profile: size optimization, full LTO, stripped
-symbols, and aborting the process on panic. See the [size measurements](docs/swiftpm.md#binary-size).
+CLI builds use size optimization, full LTO, and stripped symbols. Linux, macOS
+and Windows use `min-size`, which aborts on panic. Android retains unwinding
+because its network-interface dependency catches the absence of a Java context.
+See the [size measurements](docs/swiftpm.md#binary-size).
 
 ## Embed with SwiftPM
 

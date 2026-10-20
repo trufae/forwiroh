@@ -1,5 +1,7 @@
 plugins { id 'com.android.application' }
 
+def splitApks = project.hasProperty('splitApks')
+
 android {
     namespace 'org.forwiroh'
     compileSdk 35
@@ -11,7 +13,7 @@ android {
         versionCode 2
         versionName '0.1.2'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+        if (!splitApks) { ndk { abiFilters 'arm64-v8a', 'x86_64' } }
         externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static' } }
     }
     externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' } }
@@ -20,6 +22,16 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     buildFeatures { buildConfig true }
+    if (splitApks) {
+        splits {
+            abi {
+                enable true
+                reset()
+                include 'arm64-v8a', 'x86_64'
+                universalApk true
+            }
+        }
+    }
 }
 
 // Keep the JVM verifier component synchronized with Cargo's locked version.

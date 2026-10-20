@@ -126,8 +126,10 @@ async fn rpc(path: &Path, command: &Command) -> Result<Value> {
     Ok(result["data"].clone())
 }
 async fn serve(path: &Path, name: &str, mode: TransportMode) -> Result<()> {
-    let node = Node::open(path, name, None, mode).await?;
-    let mut listener = ipc::Listener::bind(path)?;
+    let node = Node::open_cli(path, name, mode)
+        .await
+        .context("initialize networking endpoint")?;
+    let mut listener = ipc::Listener::bind(path).context("create local control socket")?;
     println!(
         "Forwiroh server started\nVersion: {}\nIdentity: {}\nTransport: Iroh\nStatus: Listening",
         forwiroh::VERSION,

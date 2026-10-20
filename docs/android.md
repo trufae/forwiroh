@@ -11,6 +11,9 @@ GitHub releases include `forwiroh-android-debug.apk`, an installable debug build
 with both supported ABIs. No release signing key is required. CI verifies its
 debug signature and publishes `ANDROID-SHA256SUMS` alongside it. A later CI build
 can use a different debug signing key and require uninstalling the previous APK.
+For smaller downloads, choose `forwiroh-android-arm64-v8a-debug.apk` or
+`forwiroh-android-x86_64-debug.apk`. The universal APK includes both architectures.
+Maintainers produce all three with `./gradlew assembleDebug -PsplitApks`.
 
 Install JDK 17, stable Rust (the workspace requires at least 1.91), and the Android
 SDK. Set `ANDROID_HOME` to the SDK directory, or set `sdk.dir` in the untracked

@@ -135,11 +135,31 @@ pub struct Node {
     pub(crate) stream_limit: Arc<Semaphore>,
 }
 impl Node {
+    /// Open a command-line process without an Android Java Application context.
+    /// Android uses Iroh's public DNS fallbacks instead of its JNI system reader.
+    pub async fn open_cli(path: &Path, name: &str, mode: TransportMode) -> Result<Arc<Self>> {
+        #[cfg(target_os = "android")]
+        let dns = Some(iroh::dns::DnsResolver::builder().build());
+        #[cfg(not(target_os = "android"))]
+        let dns = None;
+        Self::open_with_dns(path, name, None, mode, dns).await
+    }
+
     pub async fn open(
         path: &Path,
         name: &str,
         key: Option<[u8; 32]>,
         mode: TransportMode,
+    ) -> Result<Arc<Self>> {
+        Self::open_with_dns(path, name, key, mode, None).await
+    }
+
+    async fn open_with_dns(
+        path: &Path,
+        name: &str,
+        key: Option<[u8; 32]>,
+        mode: TransportMode,
+        dns: Option<iroh::dns::DnsResolver>,
     ) -> Result<Arc<Self>> {
         pairing::validate_name(name)?;
         let store = Store::open(path, name, key)?;
@@ -164,6 +184,9 @@ impl Node {
             .secret_key(store.key.clone())
             .alpns(vec![wire::ALPN.to_vec()])
             .transport_config(cfg);
+        if let Some(dns) = dns {
+            builder = builder.dns_resolver(dns);
+        }
         if mode == TransportMode::LocalOnly {
             builder = builder
                 .relay_mode(iroh::RelayMode::Disabled)
