@@ -11,6 +11,8 @@ project = plistlib.loads(subprocess.check_output([
 objects = project["objects"]
 targets = {o["name"]: o for o in objects.values() if o.get("isa") == "PBXNativeTarget"}
 assert set(targets) == {"Forwiroh", "PacketTunnel"}, "Missing app or VPN extension target"
+extension_info = plistlib.loads((root / "PacketTunnel" / "Info.plist").read_bytes())
+assert extension_info.get("CFBundleDisplayName"), "PacketTunnel is missing a display name"
 for name, target in targets.items():
     phases = [objects[p] for p in target["buildPhases"]]
     compiled = {

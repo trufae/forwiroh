@@ -20,7 +20,9 @@ SDKROOT="${SDKROOT:-$(xcrun --sdk "$PLATFORM_NAME" --show-sdk-path)}"
 export SDKROOT
 # Avoid inheriting simulator deployment flags into host build scripts.
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
-cargo build --locked --release -p forwiroh --target "$target"
+# Emit only the final native archive so Rust completes cross-crate LTO before
+# Xcode links it. Emitting an rlib alongside it leaves deferred LLVM bitcode.
+cargo rustc --locked --release -p forwiroh --lib --crate-type staticlib --target "$target"
 mkdir -p "$DERIVED_FILE_DIR"
 cp "target/$target/release/libforwiroh.a" "$DERIVED_FILE_DIR/libforwiroh.a"
 echo "Built $target: $DERIVED_FILE_DIR/libforwiroh.a"

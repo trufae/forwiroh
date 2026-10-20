@@ -17,8 +17,7 @@ set(RUST_LIB "${RUST_DIR}/${RUST_TARGET}/release/libforwiroh.a")
 file(GLOB_RECURSE RUST_SOURCES CONFIGURE_DEPENDS "${ROOT}/crates/forwiroh/src/*.rs")
 string(TOUPPER "${RUST_TARGET}" TARGET_ENV)
 string(REPLACE "-" "_" TARGET_ENV "${TARGET_ENV}")
-# The NDK performs the final JNI link. Keep root-crate LTO disabled for this
-# static archive; desktop/iOS profiles stay intact.
+# Emit only staticlib so Rust completes LTO before the NDK's native JNI link.
 add_custom_command(OUTPUT "${RUST_LIB}"
     COMMAND ${CMAKE_COMMAND} -E env
         "CARGO_TARGET_DIR=${RUST_DIR}"
@@ -26,8 +25,8 @@ add_custom_command(OUTPUT "${RUST_LIB}"
         "CC_${RUST_TARGET}=${CMAKE_C_COMPILER}"
         "CFLAGS_${RUST_TARGET}=--target=${CMAKE_C_COMPILER_TARGET} --sysroot=${CMAKE_SYSROOT}"
         "AR_${RUST_TARGET}=${CMAKE_AR}"
-        ${CARGO} rustc --manifest-path "${ROOT}/Cargo.toml" -p forwiroh --lib
-        --locked --release --target ${RUST_TARGET} -- -C lto=off
+        ${CARGO} rustc --manifest-path "${ROOT}/Cargo.toml" -p forwiroh --lib --crate-type staticlib
+        --locked --release --target ${RUST_TARGET}
     DEPENDS ${RUST_SOURCES} "${ROOT}/Cargo.lock" "${ROOT}/Cargo.toml" "${ROOT}/crates/forwiroh/Cargo.toml"
     WORKING_DIRECTORY "${ROOT}" VERBATIM)
 add_custom_target(rust_core DEPENDS "${RUST_LIB}")
