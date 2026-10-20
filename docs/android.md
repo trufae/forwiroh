@@ -14,6 +14,7 @@ can use a different debug signing key and require uninstalling the previous APK.
 For smaller downloads, choose `forwiroh-android-arm64-v8a-debug.apk` or
 `forwiroh-android-x86_64-debug.apk`. The universal APK includes both architectures.
 Maintainers produce all three with `./gradlew assembleDebug -PsplitApks`.
+Native libraries are compressed in the APK and extracted at installation.
 
 Install JDK 17, stable Rust (the workspace requires at least 1.91), and the Android
 SDK. Set `ANDROID_HOME` to the SDK directory, or set `sdk.dir` in the untracked

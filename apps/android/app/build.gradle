@@ -22,6 +22,8 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     buildFeatures { buildConfig true }
+    // Smaller direct APK downloads; Android extracts native libraries at install.
+    packaging { jniLibs { useLegacyPackaging = true } }
     if (splitApks) {
         splits {
             abi {
