@@ -73,6 +73,11 @@ to pin a version. No Rust compiler is needed.
 
 Manual downloads are under [Releases](https://github.com/trufae/forwiroh/releases):
 
+The Android app is available separately as `forwiroh-android-debug.apk`, built
+from `apps/android` with arm64-v8a and x86_64 support. Install it directly on
+Android 8+ or use `adb install -r forwiroh-android-debug.apk`. It uses Android's
+automatic debug signing, with no release key configuration.
+
 | CLI platform | Release assets | Requirements |
 | --- | --- | --- |
 | Linux x86_64 / arm64 | `forwiroh-{x86_64,aarch64}-unknown-linux-musl.tar.gz` | Static musl executables; glibc is not required. |
@@ -152,7 +157,7 @@ and [SwiftPM workflow](.github/workflows/swiftpm.yml) produce Apple XCFrameworks
 Linux/Android static library bundles, and complete offline SwiftPM ZIPs in
 `dist/`. Pushing a `vX.Y.Z` tag runs the complete build and test matrix, then
 creates a GitHub release with SDK ZIPs, CLI archives for all eight targets, the
-installers, `SHA256SUMS` and `CLI-SHA256SUMS`. Use the SwiftPM ZIP
+Android debug APK, the installers, and checksums for each set. Use the SwiftPM ZIP
 asset for integration; GitHub's source archives do not contain the binaries.
 
 Validation includes six Swift tests on macOS and Linux, external SwiftPM

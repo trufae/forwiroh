@@ -9,7 +9,7 @@ on:
         required: false
         type: string
   pull_request:
-    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'scripts/*swift*', 'scripts/*cli*', 'scripts/test-install.py', 'install.*', 'scripts/zig-musl-linker.sh', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml', '.github/workflows/cli.yml']
+    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'apps/android/**', 'scripts/*swift*', 'scripts/*cli*', 'scripts/test-install*', 'install.*', 'scripts/zig-musl-linker.sh', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml', '.github/workflows/cli.yml', '.github/workflows/android-apk.yml']
 permissions:
   contents: read
 concurrency:
@@ -18,6 +18,8 @@ concurrency:
 jobs:
   cli:
     uses: ./.github/workflows/cli.yml
+  android-apk:
+    uses: ./.github/workflows/android-apk.yml
   validate:
     runs-on: ubuntu-24.04
     steps:
@@ -140,7 +142,7 @@ jobs:
           name: libraries-android
           path: dist/libraries/
   assemble:
-    needs: [apple, linux, android, cli]
+    needs: [apple, linux, android, cli, android-apk]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -164,6 +166,10 @@ jobs:
         with:
           name: Forwiroh-CLI
           path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: Forwiroh-Android
+          path: dist
       - uses: actions/upload-artifact@v4
         with:
           name: Forwiroh-SwiftPM
@@ -173,6 +179,8 @@ jobs:
             dist/install.sh
             dist/install.ps1
             dist/CLI-SHA256SUMS
+            dist/*.apk
+            dist/ANDROID-SHA256SUMS
             dist/SHA256SUMS
           if-no-files-found: error
   release:
@@ -189,13 +197,13 @@ jobs:
           path: dist
       - name: Verify release assets
         working-directory: dist
-        run: sha256sum --check SHA256SUMS CLI-SHA256SUMS
+        run: sha256sum --check SHA256SUMS CLI-SHA256SUMS ANDROID-SHA256SUMS
       - name: Create GitHub release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" dist/*.zip dist/*.tar.gz dist/SHA256SUMS dist/CLI-SHA256SUMS dist/install.sh dist/install.ps1 \
+          gh release create "$RELEASE_TAG" dist/*.zip dist/*.tar.gz dist/*.apk dist/SHA256SUMS dist/CLI-SHA256SUMS dist/ANDROID-SHA256SUMS dist/install.sh dist/install.ps1 \
             --verify-tag --title "Forwiroh ${RELEASE_TAG#v}" \
             --notes-file "docs/releases/${RELEASE_TAG#v}.md"

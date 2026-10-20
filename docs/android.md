@@ -7,6 +7,11 @@ alignment. ARMv7 is not packaged.
 
 ## Build
 
+GitHub releases include `forwiroh-android-debug.apk`, an installable debug build
+with both supported ABIs. No release signing key is required. CI verifies its
+debug signature and publishes `ANDROID-SHA256SUMS` alongside it. A later CI build
+can use a different debug signing key and require uninstalling the previous APK.
+
 Install JDK 17, stable Rust (the workspace requires at least 1.91), and the Android
 SDK. Set `ANDROID_HOME` to the SDK directory, or set `sdk.dir` in the untracked
 `apps/android/local.properties`. Install these SDK packages and Rust targets:
@@ -20,15 +25,16 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Gradle invokes CMake, which builds the locked Rust library for each ABI and links
-the JNI shared library. The Android static archive uses release optimization
-with root-crate LTO disabled; the NDK performs the final shared-library link. Rust must be on Android Studio's inherited PATH. The
+the JNI shared library. The Android static archive uses size-focused release
+optimization and completes Rust LTO before the NDK performs the final shared-library
+link. Rust must be on Android Studio's inherited PATH. The
 wrapper pins Gradle 8.11.1 with its distribution SHA-256. Dependencies come from
 Google Maven, Maven Central and the upstream rustls verifier Maven archive.
 The verifier JVM component version is read from Cargo.lock. JNI installs a
 process-lifetime Application context for Android system DNS and TLS verification
-before the first Rust endpoint is opened. Release signing credentials are deliberately not
-part of this repository; configure your own signing for distribution. CI uploads
-an installable debug APK and test/lint reports.
+before the first Rust endpoint is opened. Release signing credentials are not
+part of this repository. The downloadable debug APK uses Android's automatic
+debug signing.
 
 ## Pair and connect
 
