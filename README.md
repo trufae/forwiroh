@@ -52,6 +52,54 @@ networking restart.
 
 ## Install the CLI
 
+### Nix / NixOS
+
+The flake provides the `forwiroh` package, a development shell, and a NixOS
+module. On NixOS, the module installs the CLI and starts the Forwiroh daemon as
+a system service.
+
+```nix
+inputs.forwiroh.url = "github:AbhiTheModder/forwiroh";
+
+modules = [
+  inputs.forwiroh.nixosModules.default
+];
+
+programs.forwiroh.enable = true;
+```
+
+When using a local checkout, use a path input instead:
+
+```nix
+inputs.forwiroh.url = "path:/home/<user>/forwiroh";
+```
+
+After rebuilding, pair devices and create forwards with the `forwiroh` CLI. The
+module does not configure OpenSSH, peer permissions, tunnels, or lid and power
+behavior.
+
+To try the CLI without installing it:
+
+```sh
+nix run github:trufae/forwiroh -- --help
+```
+
+To build the package from a local checkout:
+
+```sh
+nix build .#forwiroh
+```
+
+For development, choose either the flake shell or the legacy shell. To run the
+CLI from the checkout, use `nix run`:
+
+```sh
+nix run . -- --help
+nix develop
+# Or: nix-shell nix/shell.nix
+cargo build
+```
+
 Linux, macOS, and Android (Termux):
 
 ```sh
