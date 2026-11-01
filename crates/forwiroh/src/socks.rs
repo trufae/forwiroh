@@ -63,7 +63,7 @@ impl Node {
                 Some(_) = tasks.join_next(), if !tasks.is_empty() => {},
                 socket = listener.accept(), if tasks.len() < 64 => {
                     let Ok((socket,_)) = socket else { break; };
-                    let n = n.clone(); let peer = p.addr.id.to_string(); let stop = cancel.clone();
+                    let n = n.clone(); let peer = p.addr.id.to_string(); let stop = cancel.clone(); let tunnel = task_id.clone();
                     tasks.spawn(async move {
                         let result = async {
                             let _permit = n.stream_limit.clone().acquire_owned().await?;
@@ -79,7 +79,7 @@ impl Node {
                                 Err(e) => { proto.reply_error(&ReplyError::ConnectionNotAllowed).await?; Err(e) }
                             }
                         }.await;
-                        if let Err(e) = result { n.emit(json!({"event":"tunnel_error","error":e.to_string()})); }
+                        if let Err(e) = result { n.emit(json!({"event":"tunnel_error","peer":peer,"tunnel":tunnel,"error":format!("{e:#}")})); }
                     });
                 }
             }}
