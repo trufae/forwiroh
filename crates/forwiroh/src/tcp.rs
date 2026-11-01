@@ -1,81 +1,72 @@
 use anyhow::Result;
 use iroh::endpoint::{RecvStream, SendStream};
-use std::{
-    pin::Pin,
-    task::{Context, Poll},
-    time::Duration,
-};
 use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
+    io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
 use tokio_util::sync::CancellationToken;
-// One bounded copy buffer in each direction. Tokio's bridge preserves TCP half-close.
-struct Duplex {
-    send: SendStream,
-    recv: RecvStream,
-    last_io: std::sync::Arc<std::sync::Mutex<tokio::time::Instant>>,
-}
-impl AsyncRead for Duplex {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        b: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let before = b.filled().len();
-        let result = Pin::new(&mut self.recv).poll_read(cx, b);
-        if b.filled().len() != before {
-            *self.last_io.lock().unwrap() = tokio::time::Instant::now();
-        }
-        result
-    }
-}
-impl AsyncWrite for Duplex {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        b: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        let r = AsyncWrite::poll_write(Pin::new(&mut self.send), cx, b);
-        if let Poll::Ready(Ok(n)) = &r
-            && *n > 0
-        {
-            *self.last_io.lock().unwrap() = tokio::time::Instant::now();
-        }
-        r
-    }
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.send).poll_flush(cx)
-    }
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.send).poll_shutdown(cx)
-    }
-}
+
 pub async fn bridge(
-    mut tcp: TcpStream,
+    tcp: TcpStream,
     send: SendStream,
     recv: RecvStream,
     cancel: CancellationToken,
 ) -> Result<()> {
-    let last_io = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
-    let mut quic = Duplex {
-        send,
-        recv,
-        last_io: last_io.clone(),
-    };
-    let idle = async {
-        loop {
-            let deadline = *last_io.lock().unwrap() + Duration::from_secs(300);
-            tokio::time::sleep_until(deadline).await;
-            if last_io.lock().unwrap().elapsed() >= Duration::from_secs(300) {
-                break;
-            }
-        }
-    };
+    bridge_io(tcp, tokio::io::join(recv, send), cancel).await
+}
+
+async fn bridge_io(
+    mut tcp: impl AsyncRead + AsyncWrite + Unpin,
+    mut quic: impl AsyncRead + AsyncWrite + Unpin,
+    cancel: CancellationToken,
+) -> Result<()> {
+    // Bounded buffers and TCP half-close; QUIC keepalives detect a dead peer.
     tokio::select! {
         r = tokio::io::copy_bidirectional(&mut tcp, &mut quic) => { r?; },
         _ = cancel.cancelled() => {},
-        _ = idle => anyhow::bail!("TCP stream idle timeout"),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_streams_remain_usable_and_preserve_half_close() {
+        let (mut client, tcp) = tokio::io::duplex(64);
+        let (quic, mut server) = tokio::io::duplex(64);
+        let bridge = tokio::spawn(bridge_io(tcp, quic, CancellationToken::new()));
+        client.write_all(b"before").await.unwrap();
+        server.read_exact(&mut [0; 6]).await.unwrap();
+        tokio::time::advance(Duration::from_secs(360)).await;
+        client.write_all(b"after").await.unwrap();
+        client.shutdown().await.unwrap();
+        let mut request = Vec::new();
+        server.read_to_end(&mut request).await.unwrap();
+        assert_eq!(request, b"after");
+        server.write_all(b"reply").await.unwrap();
+        server.shutdown().await.unwrap();
+        let mut reply = Vec::new();
+        client.read_to_end(&mut reply).await.unwrap();
+        assert_eq!(reply, b"reply");
+        bridge.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stopping_a_quiet_stream_releases_both_ends() {
+        let (mut client, tcp) = tokio::io::duplex(64);
+        let (quic, mut server) = tokio::io::duplex(64);
+        let cancel = CancellationToken::new();
+        let bridge = tokio::spawn(bridge_io(tcp, quic, cancel.clone()));
+        client.write_all(b"ready").await.unwrap();
+        server.read_exact(&mut [0; 5]).await.unwrap();
+        tokio::time::advance(Duration::from_secs(360)).await;
+        cancel.cancel();
+        bridge.await.unwrap().unwrap();
+        assert_eq!(client.read(&mut [0; 1]).await.unwrap(), 0);
+        assert_eq!(server.read(&mut [0; 1]).await.unwrap(), 0);
+    }
 }
