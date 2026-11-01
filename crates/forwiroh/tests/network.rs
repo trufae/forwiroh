@@ -496,3 +496,120 @@ async fn simultaneous_peers_keep_permissions_and_revocation_isolated() {
     home.shutdown().await;
     echo.abort();
 }
+
+#[tokio::test]
+async fn stalled_peer_does_not_block_other_peers_and_shutdown_cancels_dial() {
+    let home_dir = tempfile::tempdir().unwrap();
+    let phone_dir = tempfile::tempdir().unwrap();
+    let laptop_dir = tempfile::tempdir().unwrap();
+    let blackhole = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let missing_id = iroh::SecretKey::generate().public();
+    {
+        let mut store = forwiroh::store::Store::open(phone_dir.path(), "phone", None).unwrap();
+        store
+            .update(|state| {
+                state.peers.insert(
+                    missing_id.to_string(),
+                    forwiroh::store::Peer {
+                        name: "offline".into(),
+                        device: "test".into(),
+                        addr: iroh::EndpointAddr::new(missing_id)
+                            .with_ip_addr(blackhole.local_addr().unwrap()),
+                        policy: Policy::default(),
+                    },
+                );
+            })
+            .unwrap();
+    }
+    let phone = Node::open(
+        phone_dir.path(),
+        "phone",
+        None,
+        forwiroh::TransportMode::LocalOnly,
+    )
+    .await
+    .unwrap();
+    let home = Node::open(
+        home_dir.path(),
+        "home",
+        None,
+        forwiroh::TransportMode::LocalOnly,
+    )
+    .await
+    .unwrap();
+    let laptop = Node::open(
+        laptop_dir.path(),
+        "laptop",
+        None,
+        forwiroh::TransportMode::LocalOnly,
+    )
+    .await
+    .unwrap();
+    let home_id = pair(&home, &phone).await;
+    let laptop_id = pair(&laptop, &phone).await;
+    phone.services(&home_id).await.unwrap();
+    let mut events = phone.subscribe();
+    let pending = {
+        let phone = phone.clone();
+        tokio::spawn(async move { phone.services(&missing_id.to_string()).await })
+    };
+    // A received QUIC packet proves the handshake is waiting on the silent peer.
+    timeout(Duration::from_secs(5), blackhole.recv_from(&mut [0; 64]))
+        .await
+        .unwrap()
+        .unwrap();
+    timeout(Duration::from_secs(5), async {
+        phone.services(&home_id).await.unwrap();
+        phone.services(&laptop_id).await.unwrap();
+    })
+    .await
+    .unwrap();
+    assert!(!pending.is_finished());
+    timeout(Duration::from_secs(5), phone.shutdown())
+        .await
+        .unwrap();
+    let error = timeout(Duration::from_secs(5), pending)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.to_string(), "stopping");
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event["event"] == "connection_error" && event["peer"] == missing_id.to_string() {
+                assert_eq!(event["error"], "stopping");
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    home.shutdown().await;
+    laptop.shutdown().await;
+}
+
+#[tokio::test]
+async fn disconnect_reports_reason_and_a_new_request_can_reconnect() {
+    let (_a, _b, home, phone) = nodes().await;
+    let home_id = pair(&home, &phone).await;
+    phone.services(&home_id).await.unwrap();
+    let mut events = phone.subscribe();
+    home.disconnect(&phone.endpoint.id().to_string());
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event["event"] == "disconnected" && event["peer"] == home_id {
+                assert!(!event["reason"].as_str().unwrap().is_empty());
+                assert_eq!(event["connected"], false);
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    phone.services(&home_id).await.unwrap();
+    assert_eq!(phone.snapshot()["peers"][0]["connected"], true);
+    phone.shutdown().await;
+    home.shutdown().await;
+}

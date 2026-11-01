@@ -124,7 +124,7 @@ pub struct Node {
     pairing_policy: Mutex<Policy>,
     pending: Mutex<HashMap<String, Pending>>,
     connections: Mutex<HashMap<String, Vec<Connection>>>,
-    dialing: tokio::sync::Mutex<()>,
+    dialing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     pub(crate) tunnels: Mutex<HashMap<String, Tunnel>>,
     reverse: Mutex<HashMap<String, ReverseTarget>>,
     pub(crate) vpn: Mutex<HashMap<String, crate::vpn::PacketSession>>,
@@ -219,7 +219,7 @@ impl Node {
             pairing_policy: Mutex::default(),
             pending: Mutex::default(),
             connections: Mutex::default(),
-            dialing: tokio::sync::Mutex::new(()),
+            dialing: Mutex::default(),
             tunnels: Mutex::default(),
             reverse: Mutex::default(),
             vpn: Mutex::default(),
@@ -377,7 +377,7 @@ impl Node {
         {
             t.cancel.cancel();
         }
-        self.emit(json!({"event":"disconnected","peer":id}));
+        self.emit(json!({"event":"disconnected","peer":id,"reason":"requested","connected":false}));
     }
     pub async fn shutdown(&self) {
         self.cancel.cancel();
@@ -397,7 +397,7 @@ impl Node {
                     self.tasks.spawn(async move {
                         let _permit = permit;
                         let connection = tokio::select! { _ = n.cancel.cancelled() => return, r = timeout(SETUP_TIMEOUT, incoming) => match r { Ok(Ok(c)) => c, _ => return } };
-                        if let Err(e) = n.clone().incoming(connection.clone()).await { connection.close(1u32.into(), b"request rejected"); n.emit(json!({"event":"connection_error","error":e.to_string()})); }
+                        if let Err(e) = n.clone().incoming(connection.clone()).await { connection.close(1u32.into(), b"request rejected"); n.emit(json!({"event":"connection_error","peer":connection.remote_id().to_string(),"error":format!("{e:#}")})); }
                     });
                 }
             }
@@ -575,26 +575,60 @@ impl Node {
         self.emit(json!({"event":"paired","peer":id}));
         Ok(id)
     }
+    fn cached_connection(&self, id: &str) -> Option<Connection> {
+        self.connections
+            .lock()
+            .unwrap()
+            .get(id)
+            .and_then(|list| {
+                list.iter()
+                    .find(|connection| connection.close_reason().is_none())
+            })
+            .cloned()
+    }
     pub(crate) async fn connection(self: &Arc<Self>, peer: &str) -> Result<Connection> {
         let p = self.peer(peer)?;
         let id = p.addr.id.to_string();
-        let _dial = self.dialing.lock().await;
-        if let Some(c) = self
-            .connections
-            .lock()
-            .unwrap()
-            .get(&id)
-            .and_then(|v| v.iter().find(|c| c.close_reason().is_none()))
-            .cloned()
-        {
-            return Ok(c);
+        ensure!(!self.cancel.is_cancelled(), "stopping");
+        if let Some(conn) = self.cached_connection(&id) {
+            return Ok(conn);
+        }
+        let dial = {
+            let mut dialing = self.dialing.lock().unwrap();
+            dialing.retain(|_, gate| Arc::strong_count(gate) > 1);
+            dialing.entry(id.clone()).or_default().clone()
+        };
+        let _dial = tokio::select! {
+            biased;
+            _ = self.cancel.cancelled() => bail!("stopping"),
+            guard = dial.lock() => guard,
+        };
+        if let Some(conn) = self.cached_connection(&id) {
+            return Ok(conn);
         }
         let permit = self
             .connection_limit
             .clone()
             .try_acquire_owned()
             .context("connection limit reached")?;
-        let conn = timeout(SETUP_TIMEOUT, self.endpoint.connect(p.addr, wire::ALPN)).await??;
+        self.emit(json!({"event":"connecting","peer":id}));
+        let result = tokio::select! {
+            biased;
+            _ = self.cancel.cancelled() => Err(anyhow::anyhow!("stopping")),
+            result = timeout(SETUP_TIMEOUT, self.endpoint.connect(p.addr, wire::ALPN)) => {
+                result.context("peer connection timed out")
+                    .and_then(|result| result.context("peer connection failed"))
+            },
+        };
+        let conn = match result {
+            Ok(conn) => conn,
+            Err(error) => {
+                self.emit(
+                    json!({"event":"connection_error","peer":id,"error":format!("{error:#}")}),
+                );
+                return Err(error);
+            }
+        };
         // Policy may have been revoked while dialing.
         if self.peer(&id).is_err() {
             conn.close(0u32.into(), b"revoked");
@@ -633,7 +667,7 @@ impl Node {
     async fn connection_loop(self: Arc<Self>, conn: Connection) -> Result<()> {
         let mut streams = JoinSet::new();
         let mut paths = conn.paths_stream();
-        let result = loop {
+        let result: Result<()> = loop {
             tokio::select! {
                 _ = self.cancel.cancelled() => break Ok(()),
                 _ = conn.closed() => break Ok(()),
@@ -649,10 +683,29 @@ impl Node {
                 }
             }
         };
+        let reason = conn
+            .close_reason()
+            .map(|error| error.to_string())
+            .or_else(|| result.as_ref().err().map(|error| error.to_string()))
+            .unwrap_or_else(|| "endpoint stopping".into());
         conn.close(0u32.into(), b"session closed");
         streams.abort_all();
         while streams.join_next().await.is_some() {}
-        self.emit(json!({"event":"disconnected","peer":conn.remote_id().to_string()}));
+        let peer = conn.remote_id().to_string();
+        let connected = {
+            let mut connections = self.connections.lock().unwrap();
+            let connected = connections.get_mut(&peer).is_some_and(|list| {
+                list.retain(|connection| connection.close_reason().is_none());
+                !list.is_empty()
+            });
+            if !connected {
+                connections.remove(&peer);
+            }
+            connected
+        };
+        self.emit(
+            json!({"event":"disconnected","peer":peer,"reason":reason,"connected":connected}),
+        );
         result
     }
     async fn handle_stream(
@@ -817,14 +870,14 @@ impl Node {
                 Some(_) = sockets.join_next(), if !sockets.is_empty() => {},
                 accepted = listener.accept(), if sockets.len() < 64 => {
                     let Ok((tcp,_)) = accepted else { break; };
-                    let n = n.clone(); let peer = p.addr.id.to_string(); let service = service.clone(); let stop = cancel.clone();
+                    let n = n.clone(); let peer = p.addr.id.to_string(); let service = service.clone(); let stop = cancel.clone(); let tunnel = task_id.clone();
                     sockets.spawn(async move {
                         let result = async {
                             let _permit = n.stream_limit.clone().acquire_owned().await?;
                             let (_, (s,r),_) = n.request_peer(&peer, &Request::Tcp { service }).await?;
                             crate::tcp::bridge(tcp,s,r,stop).await
                         }.await;
-                        if let Err(e) = result { n.emit(json!({"event":"tunnel_error","error":e.to_string()})); }
+                        if let Err(e) = result { n.emit(json!({"event":"tunnel_error","peer":peer,"tunnel":tunnel,"error":format!("{e:#}")})); }
                     });
                 }
             }}

@@ -310,11 +310,17 @@ forwiroh --version
 
 Quiet TCP streams stay open while their QUIC connection is healthy; there is no
 five-minute application-idle cutoff. QUIC has a 20-second keepalive interval and a
-60-second transport idle timeout.
+60-second transport idle timeout. A stalled peer dial does not block connections
+to other peers, and shutdown cancels pending dials.
 
 A disconnected TCP stream is never replayed. A new TCP connection may establish
 a new Iroh session. For relay diagnostics, `forwiroh serve --relay-only` disables
 direct UDP and requires relay transport.
+
+Core events include `connecting` and `connection_error` with the peer ID.
+`disconnected` includes the close reason and whether another connection to that
+peer remains active. Forward/SOCKS `tunnel_error` events identify the peer and
+tunnel, so clients can explain failures and decide when to reconnect.
 
 ## Trust and access restrictions
 
