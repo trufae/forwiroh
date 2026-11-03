@@ -1,15 +1,8 @@
-name: SwiftPM binaries and releases
+name: Recover 0.1.5 release
 on:
   push:
-    tags: ['v*']
-  workflow_dispatch:
-    inputs:
-      release_base_url:
-        description: Immutable HTTPS asset directory (optional; prepares remote manifest, does not publish)
-        required: false
-        type: string
-  pull_request:
-    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'apps/android/**', 'scripts/*swift*', 'scripts/*cli*', 'scripts/test-install*', 'install.*', 'scripts/zig-musl-linker.sh', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml', '.github/workflows/windows-swiftpm.yml', '.github/workflows/cli.yml', '.github/workflows/android-apk.yml']
+    branches: ['release/recover-0.1.5']
+    paths: ['.github/workflows/swiftpm.yml']
 permissions:
   contents: read
 concurrency:
@@ -27,10 +20,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ca12ba284d0a1f3d1ba37a6c3c26f664d909ddff
       - name: Check release versions and tag
         env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: tag
+          REF_NAME: v0.1.5
         run: |
           args=()
           if [ "$REF_TYPE" = tag ]; then args+=("$REF_NAME"); fi
@@ -41,6 +36,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ca12ba284d0a1f3d1ba37a6c3c26f664d909ddff
       - uses: swift-actions/setup-swift@v3
         with:
           swift-version: '6.2.4'
@@ -76,6 +73,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ca12ba284d0a1f3d1ba37a6c3c26f664d909ddff
       - name: Import Swift signing keys
         run: |
           curl -fSL --compressed https://www.swift.org/keys/all-keys.asc -o "$RUNNER_TEMP/swift-keys.asc"
@@ -107,6 +106,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ca12ba284d0a1f3d1ba37a6c3c26f664d909ddff
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
@@ -149,6 +150,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ca12ba284d0a1f3d1ba37a6c3c26f664d909ddff
       - uses: actions/download-artifact@v4
         with:
           pattern: libraries-*
@@ -156,7 +159,7 @@ jobs:
           path: dist/libraries
       - name: Assemble all release binaries
         env:
-          RELEASE_BASE_URL: ${{ inputs.release_base_url }}
+          RELEASE_BASE_URL: https://github.com/trufae/forwiroh/releases/download/v0.1.5
           REF_TYPE: ${{ github.ref_type }}
         run: |
           args=(--require-all)
@@ -187,13 +190,15 @@ jobs:
             dist/SHA256SUMS
           if-no-files-found: error
   release:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release/recover-0.1.5'
     needs: assemble
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ca12ba284d0a1f3d1ba37a6c3c26f664d909ddff
       - uses: actions/download-artifact@v4
         with:
           name: Forwiroh-SwiftPM
@@ -205,8 +210,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: v0.1.5
         run: |
+          git push --force-with-lease=refs/tags/v0.1.5:0027728992a3ba274ffc3af6bd92313798a987cd origin HEAD:refs/tags/v0.1.5
           gh release create "$RELEASE_TAG" dist/*.zip dist/*.tar.gz dist/*.apk dist/SHA256SUMS dist/CLI-SHA256SUMS dist/ANDROID-SHA256SUMS dist/install.sh dist/install.ps1 \
             --verify-tag --title "Forwiroh ${RELEASE_TAG#v}" \
             --notes-file "docs/releases/${RELEASE_TAG#v}.md"
