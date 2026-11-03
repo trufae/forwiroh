@@ -4,7 +4,7 @@ import Forwiroh
 print("Forwiroh \(Forwiroh.version)")
 let qr = try Forwiroh.qrCode("Forwiroh SwiftPM consumer")
 precondition(qr.pixels.count == qr.width * qr.width)
-#if os(macOS) || os(Linux)
+#if os(macOS) || os(Linux) || os(Windows)
 let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 let core = try await Forwiroh.open(stateDirectory: path, name: "SwiftPM consumer")
 let status = try await core.status()

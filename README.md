@@ -158,6 +158,7 @@ Swift 6.2 or newer is required.
 | iOS | arm64 device; arm64 / x86_64 simulator | iOS 17 |
 | Linux | arm64 / x86_64, glibc and musl | glibc 2.39 or musl |
 | Android | arm64-v8a / x86_64 | API 28 |
+| Windows | arm64 / amd64 (MSVC) | Windows 10/11; Swift 6.4 |
 
 Download `Forwiroh-<version>-swiftpm.zip` from
 [GitHub Releases](https://github.com/trufae/forwiroh/releases) and unpack it, or
@@ -176,7 +177,7 @@ targets: [
 ]
 ```
 
-For example, on macOS or Linux:
+For example, on macOS, Linux, or Windows:
 
 ```swift
 import Foundation
@@ -207,16 +208,21 @@ Binaries are generated output and are not committed to this source tree. A fresh
 clone needs a maintainer build before SwiftPM can consume it. The
 [build and release instructions](docs/swiftpm.md#maintainer-builds-and-binary-releases)
 and [SwiftPM workflow](.github/workflows/swiftpm.yml) produce Apple XCFrameworks,
-Linux/Android static library bundles, and complete offline SwiftPM ZIPs in
+Linux/Android/Windows static library bundles, and complete offline SwiftPM ZIPs in
 `dist/`. Pushing a `vX.Y.Z` tag runs the complete build and test matrix, then
 creates a GitHub release with SDK ZIPs, CLI archives for all eight targets, the
 Android debug APK, the installers, and checksums for each set. Use the SwiftPM ZIP
 asset for integration; GitHub's source archives do not contain the binaries.
 
-Validation includes six Swift tests on macOS and Linux, external SwiftPM
+Validation includes six Swift tests on macOS, Linux, and Windows, external SwiftPM
 consumers, an unpacked standalone package, iOS device/simulator linking, and
 Android native archive linking. Android Swift SDK builds are configured in CI;
 Android device runtime testing is still outstanding.
+
+The [Windows SwiftPM workflow](.github/workflows/windows-swiftpm.yml) also runs on
+source pushes and can be dispatched independently. Its
+`Forwiroh-SwiftPM-windows-amd64` and `Forwiroh-SwiftPM-windows-arm64` Actions
+artifacts contain a ready-to-consume package for the corresponding architecture.
 
 ## Quick start: phone → home computer
 

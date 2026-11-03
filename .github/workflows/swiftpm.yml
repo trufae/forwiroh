@@ -9,7 +9,7 @@ on:
         required: false
         type: string
   pull_request:
-    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'apps/android/**', 'scripts/*swift*', 'scripts/*cli*', 'scripts/test-install*', 'install.*', 'scripts/zig-musl-linker.sh', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml', '.github/workflows/cli.yml', '.github/workflows/android-apk.yml']
+    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'apps/android/**', 'scripts/*swift*', 'scripts/*cli*', 'scripts/test-install*', 'install.*', 'scripts/zig-musl-linker.sh', 'scripts/check-release.py', 'docs/releases/**', 'crates/**', 'Cargo.*', '.github/workflows/swiftpm.yml', '.github/workflows/windows-swiftpm.yml', '.github/workflows/cli.yml', '.github/workflows/android-apk.yml']
 permissions:
   contents: read
 concurrency:
@@ -20,6 +20,9 @@ jobs:
     uses: ./.github/workflows/cli.yml
   android-apk:
     uses: ./.github/workflows/android-apk.yml
+  windows:
+    needs: validate
+    uses: ./.github/workflows/windows-swiftpm.yml
   validate:
     runs-on: ubuntu-24.04
     steps:
@@ -142,7 +145,7 @@ jobs:
           name: libraries-android
           path: dist/libraries/
   assemble:
-    needs: [apple, linux, android, cli, android-apk]
+    needs: [apple, linux, android, windows, cli, android-apk]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4

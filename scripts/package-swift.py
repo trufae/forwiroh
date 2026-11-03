@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Assemble already-built archives into SwiftPM packages; never invokes Rust.
 
-Accepts dist/libraries/<rust-target>/libforwiroh.a (CI download layout) or
-explicit --library rust-target=/absolute/path/libforwiroh.a arguments.
+Accepts dist/libraries/<rust-target>/libforwiroh.a (forwiroh.lib on Windows)
+or explicit --library rust-target=/absolute/path/to/archive arguments.
 """
 import argparse
 import hashlib
@@ -29,6 +29,9 @@ NATIVE = {
     "x86_64-unknown-linux-musl": ["x86_64-unknown-linux-musl", "x86_64-swift-linux-musl"],
 }
 for arch in ("aarch64", "x86_64"):
+    NATIVE[f"{arch}-pc-windows-msvc"] = [
+        f"{arch}-unknown-windows-msvc", f"{arch}-pc-windows-msvc"
+    ]
     NATIVE[f"{arch}-linux-android"] = [f"{arch}-unknown-linux-android"] + [
         f"{arch}-unknown-linux-android{api}" for api in range(28, 41)
     ]
@@ -66,12 +69,13 @@ def main():
     parser.add_argument("--release-base-url", help="Immutable HTTPS release download directory")
     args = parser.parse_args()
     version = re.search(r'^version = "([^"]+)"', (ROOT / "Cargo.toml").read_text(), re.M)[1]
-    libraries = {p.parent.name: p.resolve() for p in args.libraries.glob("*/libforwiroh.a")}
+    libraries = {p.parent.name: p.resolve() for name in ("libforwiroh.a", "forwiroh.lib")
+                 for p in args.libraries.glob(f"*/{name}")}
     for value in args.library:
         target, path = value.split("=", 1)
         libraries[target] = pathlib.Path(path).resolve()
     if not libraries:
-        parser.error("No archives found; run scripts/build-swift-core.sh first")
+        parser.error("No archives found; run scripts/build-swift-core.sh (or .ps1 on Windows) first")
     for target, path in libraries.items():
         if target not in APPLE and target not in NATIVE:
             parser.error(f"Unsupported target {target}")
@@ -118,10 +122,11 @@ def main():
             for target, library in sorted(libraries.items()):
                 if target not in NATIVE:
                     continue
-                destination = path / target / "libforwiroh.a"
+                filename = "forwiroh.lib" if target.endswith("-windows-msvc") else "libforwiroh.a"
+                destination = path / target / filename
                 destination.parent.mkdir()
                 shutil.copy2(library, destination)
-                variants.append({"path": f"{target}/libforwiroh.a", "supportedTriples": NATIVE[target],
+                variants.append({"path": f"{target}/{filename}", "supportedTriples": NATIVE[target],
                                  "staticLibraryMetadata": {"headerPaths": ["include"],
                                                            "moduleMapPath": "include/module.modulemap"}})
             write_json(path / "info.json", {"schemaVersion": "1.0", "artifacts": {

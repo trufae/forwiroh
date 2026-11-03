@@ -1,0 +1,75 @@
+name: Windows SwiftPM binaries
+
+on:
+  push:
+    branches: [main, 'feat/**']
+    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'crates/**', 'Cargo.*', 'scripts/*swift*', '.github/workflows/windows-swiftpm.yml']
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: SwiftPM (Windows ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            arch: amd64
+            target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            arch: arm64
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Match pmai's Windows Swift toolchain and native architecture.
+      - uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: swift-6.4.0-release
+          swift-build: 6.4.0-RELEASE
+          build_arch: ${{ matrix.arch }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: swiftpm-${{ matrix.target }}
+          cache-on-failure: true
+      - name: Build Rust static library with the shared CRT
+        run: ./scripts/build-swift-core.ps1 -Target '${{ matrix.target }}'
+      - name: Package Windows SwiftPM library
+        run: python scripts/package-swift.py
+      - name: Test the unpacked distribution and external consumer
+        run: |
+          $archive = Get-Item 'dist/Forwiroh-*-swiftpm.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'forwiroh-sdk'
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $destination
+          $env:FORWIROH_PACKAGE_PATH = Join-Path $destination 'Forwiroh'
+          swift test --package-path $env:FORWIROH_PACKAGE_PATH --configuration release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          swift run --package-path examples/swiftpm --configuration release Consumer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libraries-windows-${{ matrix.arch }}
+          path: dist/libraries/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Forwiroh-SwiftPM-windows-${{ matrix.arch }}
+          path: |
+            dist/Forwiroh-*-swiftpm.zip
+            dist/ForwirohNative.artifactbundle.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
