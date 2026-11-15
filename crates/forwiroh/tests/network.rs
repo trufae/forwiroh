@@ -155,19 +155,21 @@ async fn pairing_again_persists_the_server_address_after_restart() {
         .unwrap();
 
     let previous = home.endpoint.addr();
-    home.shutdown().await;
-    drop(home);
-    let _old_port = tokio::net::UdpSocket::bind(*previous.ip_addrs().next().unwrap())
-        .await
-        .unwrap();
-    let home = Node::open(
-        home_dir.path(),
+    let next_home_dir = tempfile::tempdir().unwrap();
+    for file in ["identity", "peers.json"] {
+        std::fs::copy(home_dir.path().join(file), next_home_dir.path().join(file)).unwrap();
+    }
+    // Keep the original bind open until the replacement gets a different port.
+    let next_home = Node::open(
+        next_home_dir.path(),
         "home",
         None,
         forwiroh::TransportMode::LocalOnly,
     )
     .await
     .unwrap();
+    home.shutdown().await;
+    let home = next_home;
     let current = home.endpoint.addr();
     assert_eq!(previous.id, current.id);
     assert_ne!(previous.addrs, current.addrs);
