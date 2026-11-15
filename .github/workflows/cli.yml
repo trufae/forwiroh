@@ -56,7 +56,7 @@ jobs:
       - name: Install musl toolchain
         if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         if: contains(matrix.target, 'android')
         with:
           packages: platform-tools
