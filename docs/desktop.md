@@ -15,7 +15,7 @@ for an iPhone VPN without root, using the same default paired access as `serve`.
 ## macOS / SwiftUI
 
 Requires Xcode command-line tools with Swift 6, macOS 14 or newer, and stable Rust
-(minimum 1.91). The app uses Swift 6 language mode. Build from the repository root:
+(minimum 1.95). The app uses Swift 6 language mode. Build from the repository root:
 
 ```sh
 ./apps/macos/build.sh

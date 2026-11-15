@@ -3,7 +3,7 @@ name: Windows SwiftPM binaries
 on:
   push:
     branches: [main, 'feat/**']
-    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'crates/**', 'Cargo.*', 'scripts/*swift*', '.github/workflows/windows-swiftpm.yml']
+    paths: ['Package.swift', 'Sources/**', 'Tests/**', 'examples/swiftpm/**', 'crates/**', 'Cargo.*', 'rust-toolchain.toml', 'scripts/*swift*', '.github/workflows/windows-swiftpm.yml']
   workflow_call:
   workflow_dispatch:
 
@@ -39,9 +39,9 @@ jobs:
           swift-version: swift-6.4.0-release
           swift-build: 6.4.0-RELEASE
           build_arch: ${{ matrix.arch }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: swiftpm-${{ matrix.target }}

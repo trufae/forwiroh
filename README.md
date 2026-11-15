@@ -234,7 +234,7 @@ Use the CLI installer above, then run:
 forwiroh serve --name home
 ```
 
-To build from source instead, install stable Rust (minimum 1.91), then:
+To build from source instead, install stable Rust (minimum 1.95), then:
 
 ```sh
 git clone https://github.com/trufae/forwiroh.git
