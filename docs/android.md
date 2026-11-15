@@ -16,12 +16,12 @@ For smaller downloads, choose `forwiroh-android-arm64-v8a-debug.apk` or
 Maintainers produce all three with `./gradlew assembleDebug -PsplitApks`.
 Native libraries are compressed in the APK and extracted at installation.
 
-Install JDK 17, stable Rust (the workspace requires at least 1.91), and the Android
+Install JDK 17, stable Rust (the workspace requires at least 1.95), and the Android
 SDK. Set `ANDROID_HOME` to the SDK directory, or set `sdk.dir` in the untracked
 `apps/android/local.properties`. Install these SDK packages and Rust targets:
 
 ```sh
-sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
+sdkmanager 'platforms;android-35' 'build-tools;36.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
 rustup target add aarch64-linux-android x86_64-linux-android
 cd apps/android
 ./gradlew assembleDebug assembleDebugAndroidTest lintDebug
@@ -32,7 +32,7 @@ Gradle invokes CMake, which builds the locked Rust library for each ABI and link
 the JNI shared library. The Android static archive uses size-focused release
 optimization and completes Rust LTO before the NDK performs the final shared-library
 link. Rust must be on Android Studio's inherited PATH. The
-wrapper pins Gradle 8.11.1 with its distribution SHA-256. Dependencies come from
+wrapper pins Gradle 9.9.1 with its distribution SHA-256. Dependencies come from
 Google Maven, Maven Central and the upstream rustls verifier Maven archive.
 The verifier JVM component version is read from Cargo.lock. JNI installs a
 process-lifetime Application context for Android system DNS and TLS verification

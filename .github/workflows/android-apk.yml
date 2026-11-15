@@ -3,7 +3,7 @@ name: Android debug APK
 on:
   push:
     branches: [main, 'feat/**']
-    paths: ['apps/android/**', 'crates/forwiroh/**', 'Cargo.*', '.github/workflows/android-apk.yml']
+    paths: ['apps/android/**', 'crates/forwiroh/**', 'Cargo.*', 'rust-toolchain.toml', '.github/workflows/android-apk.yml']
   workflow_call:
   workflow_dispatch:
 
@@ -25,14 +25,14 @@ jobs:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,x86_64-linux-android
+      - run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup target add aarch64-linux-android x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
         with:
           key: android-apk
       - name: Install Android build tools
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
+        run: sdkmanager 'platforms;android-35' 'build-tools;36.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
       - name: Build installable debug APK with both ABIs
         working-directory: apps/android
         run: ./gradlew --no-daemon assembleDebug lintDebug -PsplitApks
@@ -43,7 +43,7 @@ jobs:
             name="forwiroh-android-$abi-debug.apk"
             if [ "$abi" = universal ]; then name=forwiroh-android-debug.apk; fi
             cp "apps/android/app/build/outputs/apk/debug/app-$abi-debug.apk" "dist/android/$name"
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "dist/android/$name"
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "dist/android/$name"
           done
           cd dist/android
           sha256sum ./*.apk > ANDROID-SHA256SUMS

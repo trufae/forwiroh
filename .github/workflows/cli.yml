@@ -3,7 +3,7 @@ name: CLI binaries
 on:
   push:
     branches: [main, 'feat/**']
-    paths: ['crates/**', 'Cargo.*', 'install.*', 'scripts/*cli*', 'scripts/test-install*', '.github/workflows/cli.yml']
+    paths: ['crates/**', 'Cargo.*', 'rust-toolchain.toml', 'install.*', 'scripts/*cli*', 'scripts/test-install*', '.github/workflows/cli.yml']
   workflow_call:
   workflow_dispatch:
 
@@ -47,9 +47,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: cli-${{ matrix.target }}

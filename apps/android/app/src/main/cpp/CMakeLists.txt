@@ -27,7 +27,7 @@ add_custom_command(OUTPUT "${RUST_LIB}"
         "AR_${RUST_TARGET}=${CMAKE_AR}"
         ${CARGO} rustc --manifest-path "${ROOT}/Cargo.toml" -p forwiroh --lib --crate-type staticlib
         --locked --release --target ${RUST_TARGET}
-    DEPENDS ${RUST_SOURCES} "${ROOT}/Cargo.lock" "${ROOT}/Cargo.toml" "${ROOT}/crates/forwiroh/Cargo.toml"
+    DEPENDS ${RUST_SOURCES} "${ROOT}/Cargo.lock" "${ROOT}/Cargo.toml" "${ROOT}/rust-toolchain.toml" "${ROOT}/crates/forwiroh/Cargo.toml"
     WORKING_DIRECTORY "${ROOT}" VERBATIM)
 add_custom_target(rust_core DEPENDS "${RUST_LIB}")
 add_library(forwiroh_jni SHARED bridge.c)
