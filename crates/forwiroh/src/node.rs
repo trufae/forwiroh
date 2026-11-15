@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
+    io::ErrorKind,
     net::SocketAddr,
     path::Path,
     sync::{Arc, Mutex},
@@ -73,6 +74,18 @@ impl Reply {
             bail!("{e}");
         }
         Ok(self.data)
+    }
+}
+#[derive(Debug)]
+pub(crate) struct PeerDialError(pub anyhow::Error);
+impl std::fmt::Display for PeerDialError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+impl std::error::Error for PeerDialError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
     }
 }
 struct PairAttempt<'a>(&'a Mutex<Option<CancellationToken>>);
@@ -249,7 +262,7 @@ impl Node {
         let store = self.store.lock().unwrap();
         let connections = self.connections.lock().unwrap();
         let peers: Vec<Value> = store.state.peers.iter().map(|(id, p)| {
-            let active = connections.get(id).and_then(|v| v.iter().find(|c| c.close_reason().is_none()));
+            let active = connections.get(id).and_then(|v| v.iter().rev().find(|c| c.close_reason().is_none()));
             json!({"id":id,"name":p.name,"device":p.device,"policy":p.policy,"connected":active.is_some(),
                 "path":active.map(connection_path)})
         }).collect();
@@ -576,23 +589,33 @@ impl Node {
         self.emit(json!({"event":"paired","peer":id}));
         Ok(id)
     }
-    fn cached_connection(&self, id: &str) -> Option<Connection> {
+    fn cached_connection(&self, id: &str, excluding: Option<usize>) -> Option<Connection> {
         self.connections
             .lock()
             .unwrap()
             .get(id)
             .and_then(|list| {
-                list.iter()
-                    .find(|connection| connection.close_reason().is_none())
+                list.iter().rev().find(|connection| {
+                    Some(connection.stable_id()) != excluding && connection.close_reason().is_none()
+                })
             })
             .cloned()
     }
     pub(crate) async fn connection(self: &Arc<Self>, peer: &str) -> Result<Connection> {
+        self.connection_excluding(peer, None)
+            .await
+            .map(|(conn, _)| conn)
+    }
+    async fn connection_excluding(
+        self: &Arc<Self>,
+        peer: &str,
+        excluding: Option<usize>,
+    ) -> Result<(Connection, bool)> {
         let p = self.peer(peer)?;
         let id = p.addr.id.to_string();
         ensure!(!self.cancel.is_cancelled(), "stopping");
-        if let Some(conn) = self.cached_connection(&id) {
-            return Ok(conn);
+        if let Some(conn) = self.cached_connection(&id, excluding) {
+            return Ok((conn, true));
         }
         let dial = {
             let mut dialing = self.dialing.lock().unwrap();
@@ -604,8 +627,8 @@ impl Node {
             _ = self.cancel.cancelled() => bail!("stopping"),
             guard = dial.lock() => guard,
         };
-        if let Some(conn) = self.cached_connection(&id) {
-            return Ok(conn);
+        if let Some(conn) = self.cached_connection(&id, excluding) {
+            return Ok((conn, true));
         }
         let permit = self
             .connection_limit
@@ -642,7 +665,7 @@ impl Node {
             let _permit = permit;
             let _ = n.connection_loop(c).await;
         });
-        Ok(conn)
+        Ok((conn, false))
     }
     fn register(&self, conn: &Connection) -> Result<()> {
         let store = self.store.lock().unwrap();
@@ -787,31 +810,56 @@ impl Node {
         }
         result
     }
-    pub(crate) async fn request(conn: &Connection, req: &Request) -> Result<(Streams, Value)> {
+    async fn request(conn: &Connection, req: &Request) -> Result<(Streams, Reply)> {
         timeout(SETUP_TIMEOUT, async {
             let (mut s, mut r) = conn.open_bi().await?;
             wire::write(&mut s, req).await?;
-            let reply: Reply = wire::read(&mut r).await?;
-            let data = reply.check()?;
-            Ok(((s, r), data))
+            let reply = wire::read(&mut r).await?;
+            Ok(((s, r), reply))
         })
         .await?
     }
-    // Retry only setup on a closed cached connection, before any payload is sent.
     pub(crate) async fn request_peer(
         self: &Arc<Self>,
         peer: &str,
         req: &Request,
     ) -> Result<(Connection, Streams, Value)> {
-        for attempt in 0..2 {
-            let conn = self.connection(peer).await?;
-            match Self::request(&conn, req).await {
-                Ok((streams, data)) => return Ok((conn, streams, data)),
-                Err(_) if attempt == 0 && conn.close_reason().is_some() => continue,
-                Err(e) => return Err(e),
+        let (mut conn, cached) = self
+            .connection_excluding(peer, None)
+            .await
+            .map_err(PeerDialError)?;
+        let (streams, reply) = match Self::request(&conn, req).await {
+            Ok(result) => result,
+            Err(error) => {
+                let transport_error = error.is::<tokio::time::error::Elapsed>()
+                    || error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+                        matches!(
+                            error.kind(),
+                            ErrorKind::ConnectionAborted
+                                | ErrorKind::ConnectionReset
+                                | ErrorKind::BrokenPipe
+                                | ErrorKind::TimedOut
+                        )
+                    });
+                let retry_cached = cached
+                    && transport_error
+                    && matches!(
+                        req,
+                        Request::Services | Request::Tcp { .. } | Request::Socks { .. }
+                    );
+                if conn.close_reason().is_none() && !retry_cached {
+                    return Err(error);
+                }
+                // Keep existing streams alive and share a replacement dial with other retries.
+                conn = self
+                    .connection_excluding(&conn.remote_id().to_string(), Some(conn.stable_id()))
+                    .await
+                    .map_err(PeerDialError)?
+                    .0;
+                Self::request(&conn, req).await?
             }
-        }
-        unreachable!()
+        };
+        Ok((conn, streams, reply.check()?))
     }
     pub async fn services(self: &Arc<Self>, peer: &str) -> Result<Value> {
         let (_, (mut s, _), v) = self.request_peer(peer, &Request::Services).await?;
@@ -955,7 +1003,8 @@ impl Node {
                     let (tcp,_) = accepted?; let c = conn.clone(); let id = id.clone(); let n = self.clone();
                     sockets.spawn(async move {
                         let _permit = n.stream_limit.clone().acquire_owned().await?;
-                        let ((s,r),_) = Self::request(&c, &Request::ReverseConnect { id }).await?;
+                        let ((s,r),reply) = Self::request(&c, &Request::ReverseConnect { id }).await?;
+                        reply.check()?;
                         crate::tcp::bridge(tcp,s,r,n.cancel.clone()).await
                     });
                 }
