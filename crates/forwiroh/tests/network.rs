@@ -1,6 +1,6 @@
 use forwiroh::{Node, store::Policy};
 use serde_json::Value;
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -305,6 +305,91 @@ async fn forward_can_listen_on_all_interfaces_and_stops_listener() {
     phone.shutdown().await;
     home.shutdown().await;
     echo.abort();
+}
+
+async fn forward_failure(node: &Arc<Node>, id: &str) -> Value {
+    let mut client = TcpStream::connect(local_listener(node, id)).await.unwrap();
+    assert_eq!(
+        timeout(Duration::from_secs(10), client.read(&mut [0]))
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
+    // A caller can retrieve the cause immediately after observing local EOF.
+    node.command(forwiroh::control::Command::TunnelFailure { id: id.into() })
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn forward_reports_ready_and_remote_tcp_failure() {
+    let (_a, _b, home, phone) = nodes().await;
+    let home_id = pair(&home, &phone).await;
+    let (target, echo) = echo().await;
+    let mut events = phone.subscribe();
+    let id = phone
+        .forward(&home_id, "127.0.0.1:0".parse().unwrap(), target.to_string())
+        .await
+        .unwrap();
+    roundtrip(local_listener(&phone, &id), 42).await;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event["event"] == "tunnel_ready" {
+                assert_eq!(event["peer"], home_id);
+                assert_eq!(event["tunnel"], id);
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    let refused = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).unwrap();
+    refused
+        .bind(&SocketAddr::from(([127, 0, 0, 1], 0)).into())
+        .unwrap();
+    let destination = refused.local_addr().unwrap().as_socket().unwrap();
+    let id = phone
+        .forward(
+            &home_id,
+            "127.0.0.1:0".parse().unwrap(),
+            destination.to_string(),
+        )
+        .await
+        .unwrap();
+    let failure = forward_failure(&phone, &id).await;
+    assert_eq!(failure["tunnel"], id);
+    assert_eq!(failure["stage"], "remote_tcp");
+    assert_eq!(failure["retryable"], true);
+    assert!(
+        failure["error"]
+            .as_str()
+            .unwrap()
+            .contains("remote TCP connection failed")
+    );
+    drop(refused);
+    phone.shutdown().await;
+    home.shutdown().await;
+    echo.abort();
+}
+
+#[tokio::test]
+async fn forward_reports_missing_peer_trust_after_revocation() {
+    let (_a, _b, home, phone) = nodes().await;
+    let home_id = pair(&home, &phone).await;
+    home.revoke(&phone.endpoint.id().to_string()).unwrap();
+    let id = phone
+        .forward(&home_id, "127.0.0.1:0".parse().unwrap(), "pmai-acp".into())
+        .await
+        .unwrap();
+    let failure = forward_failure(&phone, &id).await;
+    assert_eq!(failure["stage"], "peer_not_paired");
+    assert_eq!(failure["error"], "peer not paired");
+    assert_eq!(failure["retryable"], false);
+    phone.shutdown().await;
+    home.shutdown().await;
 }
 
 #[tokio::test]
