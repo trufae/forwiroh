@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
+    fmt,
     io::ErrorKind,
     net::SocketAddr,
     path::Path,
@@ -29,6 +30,7 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 pub const MAX_TUNNELS: usize = 64;
+const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
 pub(crate) type Streams = (SendStream, RecvStream);
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
@@ -63,15 +65,33 @@ pub(crate) enum Request {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Reply {
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error_code: Option<RejectionCode>,
     pub data: Value,
 }
 impl Reply {
     pub fn ok(data: Value) -> Self {
-        Self { error: None, data }
+        Self {
+            error: None,
+            error_code: None,
+            data,
+        }
+    }
+    fn rejected(error: &anyhow::Error) -> Self {
+        Self {
+            error: Some(error.to_string().chars().take(512).collect()),
+            error_code: error.downcast_ref::<Rejection>().and_then(|e| e.code),
+            data: Value::Null,
+        }
     }
     pub fn check(self) -> Result<Value> {
-        if let Some(e) = self.error {
-            bail!("{e}");
+        if let Some(message) = self.error {
+            let code = self.error_code.or(match message.as_str() {
+                "peer not paired" => Some(RejectionCode::PeerNotPaired),
+                "service not authorized" => Some(RejectionCode::ServiceNotAuthorized),
+                _ => None,
+            });
+            return Err(Rejection { code, message }.into());
         }
         Ok(self.data)
     }
@@ -88,6 +108,42 @@ impl std::error::Error for PeerDialError {
         self.0.source()
     }
 }
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RejectionCode {
+    PeerNotPaired,
+    ServiceNotAuthorized,
+    RemoteTcp,
+    #[serde(other)]
+    Other,
+}
+#[derive(Debug)]
+struct Rejection {
+    code: Option<RejectionCode>,
+    message: String,
+}
+impl Rejection {
+    fn new(code: RejectionCode, error: impl fmt::Display) -> Self {
+        Self {
+            code: Some(code),
+            message: error.to_string(),
+        }
+    }
+    fn stage(&self, fallback: &'static str) -> &'static str {
+        match self.code {
+            Some(RejectionCode::PeerNotPaired) => "peer_not_paired",
+            Some(RejectionCode::ServiceNotAuthorized) => "service_not_authorized",
+            Some(RejectionCode::RemoteTcp) => "remote_tcp",
+            _ => fallback,
+        }
+    }
+}
+impl fmt::Display for Rejection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for Rejection {}
 struct PairAttempt<'a>(&'a Mutex<Option<CancellationToken>>);
 impl Drop for PairAttempt<'_> {
     fn drop(&mut self) {
@@ -116,6 +172,7 @@ pub(crate) struct Tunnel {
     pub kind: String,
     pub detail: String,
     pub cancel: CancellationToken,
+    failure: Option<Value>,
 }
 #[derive(Clone)]
 struct ReverseTarget {
@@ -404,13 +461,38 @@ impl Node {
             tokio::select! {
                 _ = self.cancel.cancelled() => break,
                 incoming = self.endpoint.accept() => {
-                    let Some(incoming) = incoming else { break; };
-                    let Ok(permit) = self.connection_limit.clone().try_acquire_owned() else { incoming.refuse(); continue; };
+                    let Some(incoming) = incoming else {
+                        if !self.cancel.is_cancelled() {
+                            self.emit(json!({"event":"connection_error","stage":"accept","error":"endpoint stopped accepting connections"}));
+                        }
+                        break;
+                    };
+                    let Ok(permit) = self.connection_limit.clone().try_acquire_owned() else {
+                        incoming.refuse();
+                        self.emit(json!({"event":"connection_error","stage":"connection_limit","error":"connection limit reached"}));
+                        continue;
+                    };
                     let n = self.clone();
                     self.tasks.spawn(async move {
                         let _permit = permit;
-                        let connection = tokio::select! { _ = n.cancel.cancelled() => return, r = timeout(SETUP_TIMEOUT, incoming) => match r { Ok(Ok(c)) => c, _ => return } };
-                        if let Err(e) = n.clone().incoming(connection.clone()).await { connection.close(1u32.into(), b"request rejected"); n.emit(json!({"event":"connection_error","peer":connection.remote_id().to_string(),"error":format!("{e:#}")})); }
+                        let result = tokio::select! {
+                            _ = n.cancel.cancelled() => return,
+                            result = timeout(SETUP_TIMEOUT, incoming) => result
+                                .context("incoming handshake timed out")
+                                .and_then(|result| result.context("incoming handshake failed")),
+                        };
+                        let connection = match result {
+                            Ok(connection) => connection,
+                            Err(error) => {
+                                n.emit(json!({"event":"connection_error","stage":"handshake","error":format!("{error:#}")}));
+                                return;
+                            }
+                        };
+                        if let Err(error) = n.clone().incoming(connection.clone()).await {
+                            connection.close(1u32.into(), b"request rejected");
+                            let stage = error.downcast_ref::<Rejection>().map_or("stream_setup", |e| e.stage("pairing"));
+                            n.emit(json!({"event":"connection_error","peer":connection.remote_id().to_string(),"stage":stage,"error":format!("{error:#}")}));
+                        }
                     });
                 }
             }
@@ -422,17 +504,20 @@ impl Node {
             let (mut send, mut recv) = timeout(SETUP_TIMEOUT, conn.accept_bi()).await??;
             let request: Request = timeout(SETUP_TIMEOUT, wire::read(&mut recv)).await??;
             let outcome = tokio::select! { _ = self.cancel.cancelled() => bail!("stopping"), _ = conn.closed() => bail!("disconnected"), r = self.pair_request(&conn, request) => r };
-            let reply = match outcome {
-                Ok(v) => Reply::ok(v),
-                Err(e) => Reply {
-                    error: Some(e.to_string()),
-                    data: Value::Null,
-                },
+            let (reply, rejection) = match outcome {
+                Ok(v) => (Reply::ok(v), None),
+                Err(error) => (Reply::rejected(&error), Some(error)),
             };
-            let rejected = reply.error.is_some();
             timeout(SETUP_TIMEOUT, wire::write(&mut send, &reply)).await??;
             send.finish()?;
-            ensure!(!rejected, "pairing rejected");
+            if let Some(error) = rejection {
+                // Closing the QUIC connection can discard the queued reply.
+                tokio::select! {
+                    _ = self.cancel.cancelled() => {},
+                    _ = timeout(Duration::from_secs(2), send.stopped()) => {},
+                }
+                return Err(error);
+            }
         }
         self.clone().serve_connection(conn).await
     }
@@ -445,7 +530,7 @@ impl Node {
             addr,
         } = request
         else {
-            bail!("peer not paired");
+            return Err(Rejection::new(RejectionCode::PeerNotPaired, "peer not paired").into());
         };
         pairing::validate_name(&name)?;
         pairing::validate_name(&device)?;
@@ -738,24 +823,30 @@ impl Node {
         mut send: SendStream,
         mut recv: RecvStream,
     ) {
+        let mut stage = "stream_setup";
         let result = async {
             let request: Request = timeout(SETUP_TIMEOUT, wire::read(&mut recv)).await??;
-            let p = Self::checked(&mut send, self.peer(&conn.remote_id().to_string())).await?;
+            let p = Self::checked(&mut send, self.peer(&conn.remote_id().to_string()).map_err(|_| {
+                Rejection::new(RejectionCode::PeerNotPaired, "peer not paired").into()
+            })).await?;
             match request {
                 Request::Services => { wire::write(&mut send, &Reply::ok(json!({"version":crate::VERSION,"services":p.policy.services.keys().collect::<Vec<_>>(),"restricted":p.policy.restricted,"socks":!p.policy.restricted || !p.policy.socks_networks.is_empty(),"reverse_ports":p.policy.reverse_ports,"vpn":p.policy.vpn,"vpn_available":!p.policy.restricted || p.policy.vpn.is_some(),"vpn_packet_format":2}))).await?; send.finish()?; }
                 Request::Tcp { service } => {
                     let tcp = Self::checked(&mut send, async {
                         let destination = match p.policy.services.get(&service) {
                             Some(destination) => destination.as_str(),
-                            None => {
-                                ensure!(!p.policy.restricted, "service not authorized");
-                                service.as_str()
-                            }
+                            None if !p.policy.restricted => service.as_str(),
+                            None => return Err(Rejection::new(RejectionCode::ServiceNotAuthorized, "service not authorized").into()),
                         };
                         self.emit(json!({"event":"access_request","peer":conn.remote_id().to_string(),"name":p.name,"kind":"tcp","destination":destination}));
-                        Ok(timeout(SETUP_TIMEOUT, TcpStream::connect(destination)).await??)
+                        // Reserve time for the failure reply within the client's setup timeout.
+                        timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(destination)).await
+                            .context("remote TCP connection timed out")
+                            .and_then(|result| result.context("remote TCP connection failed"))
+                            .map_err(|error| Rejection::new(RejectionCode::RemoteTcp, format_args!("{error:#}")).into())
                     }.await).await?;
                     wire::write(&mut send, &Reply::ok(Value::Null)).await?;
+                    stage = "bridge";
                     return crate::tcp::bridge(tcp, send, recv, self.cancel.clone()).await;
                 }
                 Request::Socks { host, port } => {
@@ -796,15 +887,15 @@ impl Node {
         }.await;
         // Stream errors are observable; data-phase errors reset the stream via RAII.
         if let Err(e) = result {
-            self.emit(json!({"event":"stream_error","peer":conn.remote_id().to_string(),"error":e.to_string()}));
+            let stage = e
+                .downcast_ref::<Rejection>()
+                .map_or(stage, |e| e.stage(stage));
+            self.emit(json!({"event":"stream_error","peer":conn.remote_id().to_string(),"stage":stage,"error":format!("{e:#}")}));
         }
     }
     pub(crate) async fn checked<T>(send: &mut SendStream, result: Result<T>) -> Result<T> {
         if let Err(e) = &result {
-            let reply = Reply {
-                error: Some(e.to_string().chars().take(512).collect()),
-                data: Value::Null,
-            };
+            let reply = Reply::rejected(e);
             let _ = timeout(SETUP_TIMEOUT, wire::write(send, &reply)).await;
             let _ = send.finish();
         }
@@ -883,6 +974,7 @@ impl Node {
                 kind: kind.into(),
                 detail,
                 cancel: cancel.clone(),
+                failure: None,
             },
         );
         self.emit(json!({"event":"tunnels_changed"}));
@@ -896,6 +988,28 @@ impl Node {
     }
     pub fn stop(&self, id: &str) {
         self.remove_tunnel(id);
+    }
+    pub(crate) fn tunnel_failure(&self, id: &str) -> Value {
+        self.tunnels
+            .lock()
+            .unwrap()
+            .get(id)
+            .and_then(|tunnel| tunnel.failure.clone())
+            .unwrap_or(Value::Null)
+    }
+    fn forward_error(
+        &self,
+        peer: &str,
+        id: &str,
+        stage: &str,
+        retryable: bool,
+        error: &anyhow::Error,
+    ) {
+        let event = json!({"event":"tunnel_error","peer":peer,"tunnel":id,"stage":stage,"retryable":retryable,"error":format!("{error:#}")});
+        if let Some(tunnel) = self.tunnels.lock().unwrap().get_mut(id) {
+            tunnel.failure = Some(event.clone());
+        }
+        self.emit(event);
     }
     pub async fn forward(
         self: &Arc<Self>,
@@ -918,15 +1032,28 @@ impl Node {
                 _ = cancel.cancelled() => break,
                 Some(_) = sockets.join_next(), if !sockets.is_empty() => {},
                 accepted = listener.accept(), if sockets.len() < 64 => {
-                    let Ok((tcp,_)) = accepted else { break; };
+                    let Ok((mut tcp,_)) = accepted else { break; };
                     let n = n.clone(); let peer = p.addr.id.to_string(); let service = service.clone(); let stop = cancel.clone(); let tunnel = task_id.clone();
                     sockets.spawn(async move {
-                        let result = async {
-                            let _permit = n.stream_limit.clone().acquire_owned().await?;
-                            let (_, (s,r),_) = n.request_peer(&peer, &Request::Tcp { service }).await?;
-                            crate::tcp::bridge(tcp,s,r,stop).await
-                        }.await;
-                        if let Err(e) = result { n.emit(json!({"event":"tunnel_error","peer":peer,"tunnel":tunnel,"error":format!("{e:#}")})); }
+                        let Ok(_permit) = n.stream_limit.clone().acquire_owned().await else { return; };
+                        let (s, r) = match n.request_peer(&peer, &Request::Tcp { service }).await {
+                            Ok((_, streams, _)) => streams,
+                            Err(error) => {
+                                let (stage, retryable) = if let Some(error) = error.downcast_ref::<Rejection>() {
+                                    (error.stage("stream_setup"), matches!(error.code, Some(RejectionCode::RemoteTcp)))
+                                } else if error.is::<PeerDialError>() {
+                                    ("peer_dial", true)
+                                } else {
+                                    ("stream_setup", true)
+                                };
+                                n.forward_error(&peer, &tunnel, stage, retryable, &error);
+                                return;
+                            }
+                        };
+                        n.emit(json!({"event":"tunnel_ready","peer":peer,"tunnel":tunnel}));
+                        if let Err(error) = crate::tcp::bridge(&mut tcp, s, r, stop).await {
+                            n.forward_error(&peer, &tunnel, "bridge", true, &error);
+                        }
                     });
                 }
             }}

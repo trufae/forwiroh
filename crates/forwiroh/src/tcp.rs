@@ -1,13 +1,10 @@
 use anyhow::Result;
 use iroh::endpoint::{RecvStream, SendStream};
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    net::TcpStream,
-};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
 pub async fn bridge(
-    tcp: TcpStream,
+    tcp: impl AsyncRead + AsyncWrite + Unpin,
     send: SendStream,
     recv: RecvStream,
     cancel: CancellationToken,

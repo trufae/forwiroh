@@ -54,6 +54,9 @@ pub enum Command {
         listen: SocketAddr,
         service: String,
     },
+    TunnelFailure {
+        id: String,
+    },
     Reverse {
         peer: String,
         port: u16,
@@ -145,6 +148,7 @@ impl Node {
                 listen,
                 service,
             } => json!({"id":self.forward(&peer,listen,service).await?}),
+            Command::TunnelFailure { id } => self.tunnel_failure(&id),
             Command::Reverse { peer, port, target } => {
                 json!({"id":self.reverse(&peer,port,target).await?})
             }
