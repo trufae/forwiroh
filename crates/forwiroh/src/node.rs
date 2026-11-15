@@ -97,7 +97,7 @@ impl Reply {
     }
 }
 #[derive(Debug)]
-pub(crate) struct PeerDialError(pub anyhow::Error);
+struct PeerDialError(anyhow::Error);
 impl std::fmt::Display for PeerDialError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(&self.0, formatter)
@@ -500,7 +500,7 @@ impl Node {
     }
     async fn incoming(self: Arc<Self>, conn: Connection) -> Result<()> {
         let peer = conn.remote_id().to_string();
-        if self.peer(&peer).is_err() {
+        if !self.store.lock().unwrap().state.peers.contains_key(&peer) {
             let (mut send, mut recv) = timeout(SETUP_TIMEOUT, conn.accept_bi()).await??;
             let request: Request = timeout(SETUP_TIMEOUT, wire::read(&mut recv)).await??;
             let outcome = tokio::select! { _ = self.cancel.cancelled() => bail!("stopping"), _ = conn.closed() => bail!("disconnected"), r = self.pair_request(&conn, request) => r };
@@ -826,7 +826,9 @@ impl Node {
         let mut stage = "stream_setup";
         let result = async {
             let request: Request = timeout(SETUP_TIMEOUT, wire::read(&mut recv)).await??;
-            let p = Self::checked(&mut send, self.peer(&conn.remote_id().to_string()).map_err(|_| {
+            let peer = self.store.lock().unwrap().state.peers
+                .get(&conn.remote_id().to_string()).cloned();
+            let p = Self::checked(&mut send, peer.ok_or_else(|| {
                 Rejection::new(RejectionCode::PeerNotPaired, "peer not paired").into()
             })).await?;
             match request {
