@@ -11,6 +11,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const MAX_PEERS: usize = 64;
+
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
@@ -185,7 +187,7 @@ impl Store {
             }
         };
         ensure!(state.version == 1, "unsupported state version");
-        ensure!(state.peers.len() <= 64, "peer limit exceeded");
+        ensure!(state.peers.len() <= MAX_PEERS, "peer limit exceeded");
         for peer in state.peers.values() {
             peer.policy.validate()?;
         }
@@ -197,6 +199,13 @@ impl Store {
         };
         store.save()?;
         Ok(store)
+    }
+    pub(crate) fn check_peer_capacity(&self, id: &str) -> Result<()> {
+        ensure!(
+            self.state.peers.len() < MAX_PEERS || self.state.peers.contains_key(id),
+            "peer limit reached"
+        );
+        Ok(())
     }
     pub fn save(&self) -> Result<()> {
         atomic_write(

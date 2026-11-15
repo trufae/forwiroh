@@ -139,6 +139,64 @@ async fn pairing_again_requires_approval_and_preserves_permissions() {
 }
 
 #[tokio::test]
+async fn pairing_again_persists_the_server_address_after_restart() {
+    let (home_dir, phone_dir, home, phone) = nodes().await;
+    let home_id = pair(&home, &phone).await;
+    phone.rename(&home_id, "My workstation").unwrap();
+    phone
+        .set_policy(
+            &home_id,
+            Policy {
+                restricted: true,
+                services: [("echo".into(), "127.0.0.1:19283".into())].into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let previous = home.endpoint.addr();
+    home.shutdown().await;
+    drop(home);
+    let _old_port = tokio::net::UdpSocket::bind(*previous.ip_addrs().next().unwrap())
+        .await
+        .unwrap();
+    let home = Node::open(
+        home_dir.path(),
+        "home",
+        None,
+        forwiroh::TransportMode::LocalOnly,
+    )
+    .await
+    .unwrap();
+    let current = home.endpoint.addr();
+    assert_eq!(previous.id, current.id);
+    assert_ne!(previous.addrs, current.addrs);
+    assert_eq!(pair(&home, &phone).await, home_id);
+    phone.shutdown().await;
+    drop(phone);
+
+    let store = forwiroh::store::Store::open(phone_dir.path(), "phone", None).unwrap();
+    let peer = &store.state.peers[&home_id];
+    assert_eq!(peer.addr, current);
+    assert_eq!(peer.name, "My workstation");
+    assert!(peer.policy.restricted);
+    assert_eq!(peer.policy.services["echo"], "127.0.0.1:19283");
+    drop(store);
+
+    let phone = Node::open(
+        phone_dir.path(),
+        "phone",
+        None,
+        forwiroh::TransportMode::LocalOnly,
+    )
+    .await
+    .unwrap();
+    phone.services(&home_id).await.unwrap();
+    phone.shutdown().await;
+    home.shutdown().await;
+}
+
+#[tokio::test]
 async fn paired_access_accepts_selected_tcp_destinations_and_reverse_ports_and_logs_them() {
     let (_a, _b, home, phone) = nodes().await;
     let home_id = pair(&home, &phone).await;
