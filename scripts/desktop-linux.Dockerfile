@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     build-essential curl ca-certificates pkg-config libgtk-4-dev libjson-glib-dev \
     valac meson ninja-build xvfb xauth python3 dbus-x11 && rm -rf /var/lib/apt/lists/*
