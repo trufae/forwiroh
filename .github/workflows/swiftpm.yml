@@ -58,7 +58,7 @@ jobs:
         run: |
           swift build --package-path examples/swiftpm --triple arm64-apple-ios17.0 --sdk "$(xcrun --sdk iphoneos --show-sdk-path)"
           swift build --package-path examples/swiftpm --triple arm64-apple-ios17.0-simulator --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: libraries-apple
           path: dist/libraries/
@@ -97,7 +97,7 @@ jobs:
       - run: python3 scripts/package-swift.py
       - run: swift test
       - run: swift run --package-path examples/swiftpm Consumer
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: libraries-linux-${{ matrix.arch }}
           path: dist/libraries/
@@ -140,7 +140,7 @@ jobs:
           for arch in aarch64 x86_64; do
             swift build --package-path examples/swiftpm --build-system native --swift-sdk swift-6.4.1-RELEASE_android --triple "$arch-unknown-linux-android28" --static-swift-stdlib
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: libraries-android
           path: dist/libraries/
@@ -173,7 +173,7 @@ jobs:
         with:
           name: Forwiroh-Android
           path: dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Forwiroh-SwiftPM
           path: |

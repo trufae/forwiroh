@@ -116,7 +116,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/test-install.ps1 -Archive 'dist/cli/forwiroh-${{ matrix.target }}.zip'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cli-${{ matrix.target }}
           path: dist/cli/*
@@ -134,7 +134,7 @@ jobs:
       - run: python3 scripts/package-cli.py --assemble
       - run: cd dist/cli && sha256sum --check CLI-SHA256SUMS
       - run: python3 scripts/test-install.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Forwiroh-CLI
           path: dist/cli/*

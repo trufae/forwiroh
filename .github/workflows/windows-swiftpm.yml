@@ -60,12 +60,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           swift run --package-path examples/swiftpm --configuration release Consumer
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: libraries-windows-${{ matrix.arch }}
           path: dist/libraries/
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Forwiroh-SwiftPM-windows-${{ matrix.arch }}
           path: |
