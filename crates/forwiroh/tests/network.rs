@@ -671,3 +671,123 @@ async fn disconnect_reports_reason_and_a_new_request_can_reconnect() {
     phone.shutdown().await;
     home.shutdown().await;
 }
+
+#[tokio::test]
+async fn stalled_cached_connection_is_bypassed_without_closing_existing_streams() {
+    use forwiroh::{
+        TransportMode,
+        store::{Peer, Store},
+        wire,
+    };
+    use iroh::{
+        Endpoint,
+        endpoint::{Connection, RecvStream, SendStream, presets},
+    };
+    use serde_json::json;
+
+    async fn services_stream(connection: &Connection) -> (SendStream, RecvStream) {
+        let (send, mut recv) = connection.accept_bi().await.unwrap();
+        assert_eq!(
+            wire::read::<Value>(&mut recv).await.unwrap(),
+            json!({"op":"services"})
+        );
+        (send, recv)
+    }
+
+    async fn reply((mut send, mut recv): (SendStream, RecvStream), data: &str) {
+        wire::write(&mut send, &json!({"data":data})).await.unwrap();
+        send.finish().unwrap();
+        assert!(recv.read_to_end(0).await.unwrap().is_empty());
+    }
+
+    let remote = Endpoint::builder(presets::Minimal)
+        .alpns(vec![wire::ALPN.to_vec()])
+        .clear_address_lookup()
+        .clear_ip_transports()
+        .bind_addr("127.0.0.1:0")
+        .unwrap()
+        .bind()
+        .await
+        .unwrap();
+    let peer = remote.id().to_string();
+    let dir = tempfile::tempdir().unwrap();
+    Store::open(dir.path(), "client", None)
+        .unwrap()
+        .update(|state| {
+            state.peers.insert(
+                peer.clone(),
+                Peer {
+                    name: "remote".into(),
+                    device: "test".into(),
+                    addr: iroh::EndpointAddr::new(remote.id())
+                        .with_ip_addr(remote.bound_sockets()[0]),
+                    policy: Policy::default(),
+                },
+            );
+        })
+        .unwrap();
+    let client = Node::open(dir.path(), "client", None, TransportMode::LocalOnly)
+        .await
+        .unwrap();
+    let (echo_address, echo) = echo().await;
+
+    timeout(Duration::from_secs(30), async {
+        let (original, first) = tokio::join!(
+            async {
+                let connection = remote.accept().await.unwrap().await.unwrap();
+                reply(services_stream(&connection).await, "original").await;
+                connection
+            },
+            client.services(&peer)
+        );
+        assert_eq!(first.unwrap(), json!("original"));
+
+        let (mut active_send, mut active_recv) = original.open_bi().await.unwrap();
+        wire::write(
+            &mut active_send,
+            &json!({"op":"tcp","service":echo_address.to_string()}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            wire::read::<Value>(&mut active_recv).await.unwrap()["error"],
+            Value::Null
+        );
+        active_send.write_all(b"before ").await.unwrap();
+
+        let ((), first, second) = tokio::join!(
+            async {
+                let _first_stalled = services_stream(&original).await;
+                let _second_stalled = services_stream(&original).await;
+                tokio::time::pause();
+                tokio::time::advance(wire::SETUP_TIMEOUT).await;
+                tokio::time::resume();
+
+                let replacement = remote.accept().await.unwrap().await.unwrap();
+                reply(services_stream(&replacement).await, "replacement").await;
+                reply(services_stream(&replacement).await, "replacement").await;
+                active_send.write_all(b"after").await.unwrap();
+                active_send.finish().unwrap();
+                assert_eq!(active_recv.read_to_end(64).await.unwrap(), b"before after");
+
+                let ((), next) = tokio::join!(
+                    async {
+                        reply(services_stream(&replacement).await, "replacement").await;
+                    },
+                    client.services(&peer)
+                );
+                assert_eq!(next.unwrap(), json!("replacement"));
+            },
+            client.services(&peer),
+            client.services(&peer)
+        );
+        assert_eq!(first.unwrap(), json!("replacement"));
+        assert_eq!(second.unwrap(), json!("replacement"));
+    })
+    .await
+    .unwrap();
+
+    client.shutdown().await;
+    remote.close().await;
+    echo.abort();
+}
