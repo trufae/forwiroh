@@ -438,10 +438,8 @@ impl Node {
         pairing::validate_name(&device)?;
         ensure!(addr.id == conn.remote_id(), "identity mismatch");
         ensure!(addr.addrs.len() <= 16, "too many peer addresses");
-        ensure!(
-            self.store.lock().unwrap().state.peers.len() < 64,
-            "peer limit reached"
-        );
+        let peer_id = addr.id.to_string();
+        self.store.lock().unwrap().check_peer_capacity(&peer_id)?;
         let expires = {
             let mut invites = self.invitations.lock().unwrap();
             let i = invites.get(&id).context("invitation unavailable")?;
@@ -468,9 +466,7 @@ impl Node {
             },
         );
         let _pending = PendingGuard(&self.pending, id.clone());
-        self.emit(
-            json!({"event":"pair_request","id":id,"name":name,"peer":conn.remote_id().to_string()}),
-        );
+        self.emit(json!({"event":"pair_request","id":id,"name":name,"peer":peer_id}));
         let result = timeout(
             Duration::from_secs(120.min(expires.saturating_sub(pairing::now()))),
             rx,
@@ -483,10 +479,10 @@ impl Node {
         );
         {
             let mut store = self.store.lock().unwrap();
-            ensure!(store.state.peers.len() < 64, "peer limit reached");
+            store.check_peer_capacity(&peer_id)?;
             store.update(|s| {
                 s.peers
-                    .entry(conn.remote_id().to_string())
+                    .entry(peer_id.clone())
                     .and_modify(|existing| {
                         existing.device = peer.device.clone();
                         existing.addr = peer.addr.clone();
@@ -494,15 +490,15 @@ impl Node {
                     .or_insert(peer);
             })?;
         }
-        self.emit(json!({"event":"paired","peer":conn.remote_id().to_string()}));
+        self.emit(json!({"event":"paired","peer":peer_id}));
         Ok(json!({"name":self.store.lock().unwrap().state.name,"addr":self.endpoint.addr()}))
     }
     pub async fn pair(self: &Arc<Self>, uri: &str, device: &str) -> Result<String> {
         let invite = Invitation::parse(uri)?;
-        ensure!(
-            self.store.lock().unwrap().state.peers.len() < 64,
-            "peer limit reached"
-        );
+        self.store
+            .lock()
+            .unwrap()
+            .check_peer_capacity(&invite.addr.id.to_string())?;
         let cancel = self.cancel.child_token();
         {
             let mut current = self.pairing.lock().unwrap();
@@ -564,8 +560,13 @@ impl Node {
                 addr,
                 policy: self.pairing_policy.lock().unwrap().clone(),
             };
-            self.store.lock().unwrap().update(|s| {
-                s.peers.entry(id.clone()).or_insert(peer);
+            let mut store = self.store.lock().unwrap();
+            store.check_peer_capacity(&id)?;
+            store.update(|s| {
+                s.peers
+                    .entry(id.clone())
+                    .and_modify(|existing| existing.addr = peer.addr.clone())
+                    .or_insert(peer);
             })?;
             Ok::<_, anyhow::Error>(id)
         }
