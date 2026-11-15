@@ -26,7 +26,7 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check release versions and tag
         env:
           REF_TYPE: ${{ github.ref_type }}
@@ -40,7 +40,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: swift-actions/setup-swift@v3
         with:
           swift-version: '6.2.4'
@@ -75,7 +75,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Import Swift signing keys
         run: |
           curl -fSL --compressed https://www.swift.org/keys/all-keys.asc -o "$RUNNER_TEMP/swift-keys.asc"
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: |
           rustup toolchain install --profile minimal --no-self-update
           rustup target add aarch64-linux-android x86_64-linux-android
@@ -148,7 +148,7 @@ jobs:
     needs: [apple, linux, android, windows, cli, android-apk]
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           pattern: libraries-*
@@ -193,7 +193,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           name: Forwiroh-SwiftPM
