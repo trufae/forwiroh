@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"
+     role="img" aria-labelledby="forwiroh-title">
+  <title id="forwiroh-title">Forwiroh</title>
+
+  <defs>
+    <linearGradient id="forwiroh-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#064E52"/>
+      <stop offset="0.55" stop-color="#013C42"/>
+      <stop offset="1" stop-color="#01272C"/>
+    </linearGradient>
+    <linearGradient id="forwiroh-mint" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#6BE0AC"/>
+      <stop offset="1" stop-color="#A6F7CD"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#forwiroh-bg)"/>
+
+  <g transform="translate(26 -8) scale(0.88)">
+    <!-- one cable: out of the plug, up the F stem, along the top arm, down into the W, out as an arrow -->
+    <path d="M 210 790
+             L 210 354
+             Q 210 300 264 300
+             L 450 300
+             L 565 760
+             L 680 540
+             L 795 760
+             L 890 580"
+          fill="none" stroke="#6BE0AC" stroke-width="64"
+          stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- F crossbar -->
+    <path d="M 210 540 L 355 540"
+          fill="none" stroke="#6BE0AC" stroke-width="64" stroke-linecap="round"/>
+
+    <!-- arrowhead closing the last stroke of the W -->
+    <path d="M 965 439 L 814 560 L 949 631 Z"
+          fill="url(#forwiroh-mint)" stroke="url(#forwiroh-mint)"
+          stroke-width="24" stroke-linejoin="round"/>
+
+    <!-- RJ45 plug: the mark stands on it -->
+    <g>
+      <rect x="115" y="780" width="190" height="135" rx="44" fill="#FAF5E3"/>
+      <rect x="150" y="838" width="24" height="58" rx="12" fill="url(#forwiroh-bg)"/>
+      <rect x="198" y="838" width="24" height="58" rx="12" fill="url(#forwiroh-bg)"/>
+      <rect x="246" y="838" width="24" height="58" rx="12" fill="url(#forwiroh-bg)"/>
+    </g>
+  </g>
+</svg>
