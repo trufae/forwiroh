@@ -1,49 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"
-     role="img" aria-labelledby="forwiroh-title">
-  <title id="forwiroh-title">Forwiroh</title>
-
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="forwiroh-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#064E52"/>
-      <stop offset="0.55" stop-color="#013C42"/>
-      <stop offset="1" stop-color="#01272C"/>
+    <linearGradient id="linear-gradient-1" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#064e52"/>
+      <stop offset="0.55" stop-color="#013c42"/>
+      <stop offset="1" stop-color="#01272c"/>
     </linearGradient>
-    <linearGradient id="forwiroh-mint" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#6BE0AC"/>
-      <stop offset="1" stop-color="#A6F7CD"/>
+    <linearGradient id="linear-gradient-2" x1="742.32" y1="547.28" x2="906.52" y2="418.144" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6be0ac"/>
+      <stop offset="1" stop-color="#6be0ac"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-3" x1="158" y1="729.44" x2="194.065" y2="744.363" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#064e52"/>
+      <stop offset="0.55" stop-color="#013c42"/>
+      <stop offset="1" stop-color="#01272c"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-4" x1="200.24" y1="729.44" x2="236.305" y2="744.363" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#064e52"/>
+      <stop offset="0.55" stop-color="#013c42"/>
+      <stop offset="1" stop-color="#01272c"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-5" x1="242.48" y1="729.44" x2="278.545" y2="744.363" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#064e52"/>
+      <stop offset="0.55" stop-color="#013c42"/>
+      <stop offset="1" stop-color="#01272c"/>
     </linearGradient>
   </defs>
-
-  <rect width="1024" height="1024" fill="url(#forwiroh-bg)"/>
-
-  <g transform="translate(26 -8) scale(0.88)">
-    <!-- one cable: out of the plug, up the F stem, along the top arm, down into the W, out as an arrow -->
-    <path d="M 210 790
-             L 210 354
-             Q 210 300 264 300
-             L 450 300
-             L 565 760
-             L 680 540
-             L 795 760
-             L 890 580"
-          fill="none" stroke="#6BE0AC" stroke-width="64"
-          stroke-linecap="round" stroke-linejoin="round"/>
-
-    <!-- F crossbar -->
-    <path d="M 210 540 L 355 540"
-          fill="none" stroke="#6BE0AC" stroke-width="64" stroke-linecap="round"/>
-
-    <!-- arrowhead closing the last stroke of the W -->
-    <path d="M 965 439 L 814 560 L 949 631 Z"
-          fill="url(#forwiroh-mint)" stroke="url(#forwiroh-mint)"
-          stroke-width="24" stroke-linejoin="round"/>
-
-    <!-- RJ45 plug: the mark stands on it -->
+  <title>forwiroh-logo.svg</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#linear-gradient-1)"/>
+    <path d="M210.8 687.2 L210.8 303.52 C210.8 271.84 226.64 256 258.32 256 L422 256 L523.2 660.8 L624.4 467.2 L725.6 660.8 L809.2 502.4" fill="none" stroke="#6be0ac" stroke-width="56.32" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="210.8" y1="467.2" x2="338.4" y2="467.2" fill="none" stroke="#6be0ac" stroke-width="56.32" stroke-linecap="round"/>
+    <polygon points="875.2,378.32 742.32,484.8 861.12,547.28" fill="url(#linear-gradient-2)" stroke="url(#linear-gradient-2)" stroke-width="21.12" stroke-linejoin="round"/>
     <g>
-      <rect x="115" y="780" width="190" height="135" rx="44" fill="#FAF5E3"/>
-      <rect x="150" y="838" width="24" height="58" rx="12" fill="url(#forwiroh-bg)"/>
-      <rect x="198" y="838" width="24" height="58" rx="12" fill="url(#forwiroh-bg)"/>
-      <rect x="246" y="838" width="24" height="58" rx="12" fill="url(#forwiroh-bg)"/>
+      <path d="M165.92 678.4 L255.68 678.4 C277.064 678.4 294.4 695.736 294.4 717.12 L294.4 758.48 C294.4 779.864 277.064 797.2 255.68 797.2 L165.92 797.2 C144.536 797.2 127.2 779.864 127.2 758.48 L127.2 717.12 C127.2 695.736 144.536 678.4 165.92 678.4 Z" fill="#faf5e3"/>
+      <path d="M168.56 729.44 L168.56 729.44 C174.392 729.44 179.12 734.168 179.12 740 L179.12 769.92 C179.12 775.752 174.392 780.48 168.56 780.48 L168.56 780.48 C162.728 780.48 158 775.752 158 769.92 L158 740 C158 734.168 162.728 729.44 168.56 729.44 Z" fill="url(#linear-gradient-3)"/>
+      <path d="M210.8 729.44 L210.8 729.44 C216.632 729.44 221.36 734.168 221.36 740 L221.36 769.92 C221.36 775.752 216.632 780.48 210.8 780.48 L210.8 780.48 C204.968 780.48 200.24 775.752 200.24 769.92 L200.24 740 C200.24 734.168 204.968 729.44 210.8 729.44 Z" fill="url(#linear-gradient-4)"/>
+      <path d="M253.04 729.44 L253.04 729.44 C258.872 729.44 263.6 734.168 263.6 740 L263.6 769.92 C263.6 775.752 258.872 780.48 253.04 780.48 L253.04 780.48 C247.208 780.48 242.48 775.752 242.48 769.92 L242.48 740 C242.48 734.168 247.208 729.44 253.04 729.44 Z" fill="url(#linear-gradient-5)"/>
     </g>
   </g>
 </svg>
