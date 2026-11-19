@@ -91,7 +91,7 @@ struct AddPeerView: View {
             VStack(spacing: 20) {
                 if model.pairing {
                     ProgressView("Waiting for approval on the computer…")
-                    Button("Cancel pairing", role: .cancel) { Task { await model.run(["op": "cancel_pair"]) } }
+                    Button("Cancel pairing", role: .cancel) { Task { await model.run(["op": "pair_cancel"]) } }
                 }
                 else if scan {
                     ScannerView { result in
@@ -147,7 +147,7 @@ struct PeerView: View {
                             Text(connecting ? "Connecting…" : peer.connected ? "Refresh connection" : "Connect")
                         }
                     }.disabled(!model.ready || connecting)
-                    Button("Disconnect") { Task { await model.run(["op": "disconnect", "peer": peerID], success: "Disconnected from \(peer.name)") } }.disabled(!model.ready || connecting)
+                    Button("Disconnect") { Task { await model.run(["op": "peer_disconnect", "peer": peerID], success: "Disconnected from \(peer.name)") } }.disabled(!model.ready || connecting)
                 }
                 Section("Services") {
                     Text(remoteRestricted ? "\(peer.name) accepts its configured services and ports." : "Choose any destination host and port on \(peer.name). Paired requests are accepted and logged.").font(.footnote)
@@ -161,13 +161,13 @@ struct PeerView: View {
                     ForEach(model.tunnels.filter { $0.peer == peerID }) { t in
                         VStack(alignment: .leading) {
                             Text("\(t.kind): \(t.detail)").font(.caption)
-                            Button("Stop", role: .destructive) { if t.kind == "vpn" { model.stopVPN() } else { Task { await model.run(["op": "stop", "id": t.id]) } } }
+                            Button("Stop", role: .destructive) { if t.kind == "vpn" { model.stopVPN() } else { Task { await model.run(["op": "\(t.kind)_stop", "id": t.id]) } } }
                         }
                     }
                 }
                 Section("Device") {
                     TextField("New name", text: $rename)
-                    Button("Rename") { Task { await model.run(["op": "rename", "peer": peerID, "name": rename]) } }.disabled(rename.isEmpty || !model.ready)
+                    Button("Rename") { Task { await model.run(["op": "peer_rename", "peer": peerID, "name": rename]) } }.disabled(rename.isEmpty || !model.ready)
                     Button("Access settings") {
                         policy = (try? String(data: JSONSerialization.data(withJSONObject: peer.policy, options: [.prettyPrinted, .sortedKeys]), encoding: .utf8)) ?? "{}"
                         allowAll = !(peer.policy["restricted"] as? Bool ?? false)
@@ -179,7 +179,7 @@ struct PeerView: View {
         }.navigationTitle(peer?.name ?? "Peer")
         .task { if model.ready { await connect() } }
         .confirmationDialog("Revoke this device and close its sessions?", isPresented: $remove) {
-            Button("Revoke", role: .destructive) { Task { await model.run(["op": "revoke", "peer": peerID]) } }
+            Button("Revoke", role: .destructive) { Task { await model.run(["op": "peer_revoke", "peer": peerID]) } }
         }
         .sheet(isPresented: $showPolicy) {
             NavigationStack {
@@ -194,7 +194,7 @@ struct PeerView: View {
                             do {
                                 guard var value = try JSONSerialization.jsonObject(with: Data(policy.utf8)) as? [String: Any] else { throw ForwirohError(message: "Settings must be a JSON object") }
                                 value["restricted"] = !allowAll
-                                if await model.run(["op": "policy", "peer": peerID, "policy": value], success: "Access settings saved") { showPolicy = false }
+                                if await model.run(["op": "peer_policy", "peer": peerID, "policy": value], success: "Access settings saved") { showPolicy = false }
                             } catch { model.error = error.localizedDescription }
                         }
                     }
@@ -207,7 +207,7 @@ struct PeerView: View {
         connecting = true; defer { connecting = false }
         model.error = nil
         do {
-            let result = try await model.request(["op": "services", "peer": peerID])
+            let result = try await model.request(["op": "peer_services", "peer": peerID])
             services = result["services"] as? [String] ?? []
             remoteRestricted = result["restricted"] as? Bool ?? true
             await model.refresh()
@@ -272,7 +272,7 @@ struct ForwardView: View {
                     let command: [String: Any]
                     if reverse {
                         guard let target = UInt16(targetPort), target > 0 else { model.error = "Invalid destination port"; return }
-                        command = ["op": "reverse", "peer": peer, "port": Int(p), "target": "127.0.0.1:\(target)"]
+                        command = ["op": "reverse_start", "peer": peer, "port": Int(p), "target": "127.0.0.1:\(target)"]
                     } else {
                         if restricted {
                             guard !service.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { model.error = "Enter a saved service name"; return }
@@ -281,7 +281,7 @@ struct ForwardView: View {
                             let host = targetHost.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !host.isEmpty && host.count <= 253 && !host.contains(where: { $0.isWhitespace }) else { model.error = "Enter a destination hostname or IP address"; return }
                         }
-                        command = ["op": "forward", "peer": peer, "listen": "\(listenAddress):\(p)", "service": restricted ? service : destination]
+                        command = ["op": "forward_start", "peer": peer, "listen": "\(listenAddress):\(p)", "service": restricted ? service : destination]
                     }
                     if await model.run(command, success: "Forwarding started on \(listenerName) \(listenerHost):\(p)") { dismiss() }
                 }
@@ -307,7 +307,7 @@ struct SocksView: View {
                 Task {
                     defer { starting = false }
                     guard let p = UInt16(port), p > 0 else { model.error = "Invalid port"; return }
-                    if await model.run(["op": "socks", "peer": peer, "listen": "127.0.0.1:\(p)"], success: "SOCKS5 listening on iPhone:\(p)") { dismiss() }
+                    if await model.run(["op": "socks_start", "peer": peer, "listen": "127.0.0.1:\(p)"], success: "SOCKS5 listening on iPhone:\(p)") { dismiss() }
                 }
             } label: { HStack { if starting { ProgressView() }; Text(starting ? "Starting SOCKS5…" : "Start SOCKS5") } }
             Text("Configure your client to use iPhone localhost:\(port). The paired device opens the requested destination and resolves its hostname. Requests are accepted and logged unless that device enables access restrictions.").font(.footnote)

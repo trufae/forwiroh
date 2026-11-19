@@ -50,17 +50,17 @@ with tempfile.TemporaryDirectory() as tmp:
             while not (root/'control.sock').exists():
                 if time.monotonic()>deadline:raise RuntimeError('daemon startup timed out')
                 time.sleep(.05)
-        invite=rpc(roots[0],{'op':'invite'})
+        invite=rpc(roots[0],{'op':'invite_create'})
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future=pool.submit(rpc,roots[1],{'op':'pair','uri':invite['uri'],'device':'linux'})
+            future=pool.submit(rpc,roots[1],{'op':'pair_start','uri':invite['uri'],'device':'linux'})
             deadline=time.monotonic()+20
-            while not (pending:=rpc(roots[0],{'op':'pending'})):
+            while not (pending:=rpc(roots[0],{'op':'peer_pending'})):
                 if time.monotonic()>deadline:raise RuntimeError('pair request timed out')
                 time.sleep(.05)
-            rpc(roots[0],{'op':'approve','id':pending[0]['id'],'accept':True});future.result(timeout=20)
-        rpc(roots[0],{'op':'policy','peer':'client','policy':{'vpn':{'routes':['172.23.0.1/32'],'local_ip':'10.250.0.1','peer_ip':'10.250.0.2','tun':'forwiroh0'}}})
-        link=rpc(roots[1],{'op':'vpn','peer':'server','routes':['172.23.0.1/32'],'tun':'forwiroh0'})
+            rpc(roots[0],{'op':'peer_approve','id':pending[0]['id'],'accept':True});future.result(timeout=20)
+        rpc(roots[0],{'op':'peer_policy','peer':'client','policy':{'vpn':{'routes':['172.23.0.1/32'],'local_ip':'10.250.0.1','peer_ip':'10.250.0.2','tun':'forwiroh0'}}})
+        link=rpc(roots[1],{'op':'vpn_start','peer':'server','routes':['172.23.0.1/32'],'tun':'forwiroh0'})
         output=run('ip','netns','exec',names[1],'ping','-c','3','-W','3','172.23.0.1')
         assert '0% packet loss' in output,output
         payload=Path(tmp)/'payload';payload.write_bytes(b'Forwiroh VPN\n'*10000)
@@ -73,7 +73,7 @@ with tempfile.TemporaryDirectory() as tmp:
             time.sleep(.05)
         assert result.stdout==payload.read_bytes()
         stats=rpc(roots[1],{'op':'vpn_stats','id':link['id']});assert stats['sent']>0 and stats['received']>100000,stats
-        rpc(roots[0],{'op':'revoke','peer':'client'})
+        rpc(roots[0],{'op':'peer_revoke','peer':'client'})
         failed=subprocess.run(['ip','netns','exec',names[1],'ping','-c','1','-W','1','172.23.0.1'],capture_output=True)
         assert failed.returncode!=0,'revoked VPN still forwarded packets'
         print('Kernel VPN: real TUN ICMP, 130 KB TCP, counters and revocation PASS')

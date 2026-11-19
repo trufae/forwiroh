@@ -91,7 +91,7 @@ with tempfile.TemporaryDirectory() as tmp:
                     assert join.returncode==0,(stdout,stderr)
                 else:
                     assert join.returncode!=0, 'pairing must require explicit approval'
-                    assert rpc(roots[0],{'op':'pending'})==[]
+                    assert rpc(roots[0],{'op':'peer_pending'})==[]
                     assert rpc(roots[0],{'op':'status'})['peers']==[]
                     assert rpc(roots[1],{'op':'status'})['peers']==[]
             finally:

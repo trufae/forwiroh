@@ -101,7 +101,7 @@ final class Model: ObservableObject {
                           let kind = $0["kind"] as? String, let detail = $0["detail"] as? String else { return nil }
                     return Tunnel(id: id, peer: peer, kind: kind, detail: detail)
                 }
-                let requests = try await request(["op": "pending"])
+                let requests = try await request(["op": "peer_pending"])
                 pending = (requests["value"] as? [[String: Any]] ?? []).compactMap {
                     guard let id = $0["id"] as? String, let name = $0["name"] as? String,
                           let peer = $0["peer"] as? String else { return nil }
@@ -123,7 +123,7 @@ final class Model: ObservableObject {
         busy = true; defer { busy = false }
         do {
             await cancelInvite()
-            let data = try await request(["op": "invite"])
+            let data = try await request(["op": "invite_create"])
             guard let id = data["id"] as? String, let uri = data["uri"] as? String,
                   let expiry = data["expires"] as? Double else { throw CoreError(message: "Invalid invitation") }
             invitation = Invitation(id: id, uri: uri, expires: Date(timeIntervalSince1970: expiry))
@@ -132,10 +132,10 @@ final class Model: ObservableObject {
     func cancelInvite() async {
         guard let invitation else { return }
         self.invitation = nil
-        _ = await run(["op": "cancel_invite", "id": invitation.id], notice: "Invitation closed")
+        _ = await run(["op": "invite_cancel", "id": invitation.id], notice: "Invitation closed")
     }
     func pair(_ uri: String) async -> Bool {
         pairing = true; defer { pairing = false }
-        return await run(["op": "pair", "uri": uri.trimmingCharacters(in: .whitespacesAndNewlines), "device": "macOS"], notice: "Device paired")
+        return await run(["op": "pair_start", "uri": uri.trimmingCharacters(in: .whitespacesAndNewlines), "device": "macOS"], notice: "Device paired")
     }
 }

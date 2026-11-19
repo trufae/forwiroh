@@ -5,81 +5,156 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{net::SocketAddr, sync::Arc};
 
+/// Op names still sent by released clients, mapped to their replacement.
+/// Delete an entry once no shipped client uses the old spelling.
+const LEGACY_OPS: [(&str, &str); 17] = [
+    ("invite", "invite_create"),
+    ("cancel_invite", "invite_cancel"),
+    ("pair", "pair_start"),
+    ("cancel_pair", "pair_cancel"),
+    ("pending", "peer_pending"),
+    ("approve", "peer_approve"),
+    ("rename", "peer_rename"),
+    ("revoke", "peer_revoke"),
+    ("disconnect", "peer_disconnect"),
+    ("services", "peer_services"),
+    ("policy", "peer_policy"),
+    ("allow", "peer_allow"),
+    ("forward", "forward_start"),
+    ("reverse", "reverse_start"),
+    ("socks", "socks_start"),
+    ("vpn", "vpn_start"),
+    ("stop_vpn", "vpn_stop"),
+];
+
+/// Canonical spelling of a legacy op, if `op` is one.
+pub fn canonical_op(op: &str) -> Option<&'static str> {
+    LEGACY_OPS
+        .iter()
+        .find(|(legacy, _)| *legacy == op)
+        .map(|(_, current)| *current)
+}
+
+/// Ops are `<noun>_<verb>`, verb last: every `_start` has a `_stop`, every `_create`
+/// a `_cancel`, and no verb hangs off a noun it does not name.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
     Status,
     NetworkChange,
-    Invite,
-    CancelInvite {
+    /// Mint a single-use invitation URI.
+    InviteCreate,
+    /// Withdraw an invitation that was never scanned.
+    InviteCancel {
         id: String,
     },
-    Pair {
+    PairStart {
         uri: String,
         device: String,
     },
-    CancelPair,
-    Pending,
+    PairCancel,
+    PeerPending,
+    /// Replace the policy applied to peers paired from now on.
     PairingPolicy {
         policy: Policy,
     },
-    Approve {
+    PeerApprove {
         id: String,
         accept: bool,
     },
-    Rename {
+    PeerRename {
         peer: String,
         name: String,
     },
-    Revoke {
+    PeerRevoke {
         peer: String,
     },
-    Disconnect {
+    PeerDisconnect {
         peer: String,
     },
-    Services {
+    PeerServices {
         peer: String,
     },
-    Policy {
+    /// Replace the peer's entire inbound policy.
+    PeerPolicy {
         peer: String,
         policy: Policy,
     },
-    Allow {
+    PeerAllow {
         peer: String,
         service: String,
         destination: String,
     },
-    Forward {
+    ForwardStart {
         peer: String,
         listen: SocketAddr,
         service: String,
     },
-    TunnelFailure {
+    ForwardStop {
         id: String,
     },
-    Reverse {
+    ReverseStart {
         peer: String,
         port: u16,
         target: SocketAddr,
     },
-    Socks {
+    ReverseStop {
+        id: String,
+    },
+    SocksStart {
         peer: String,
         listen: SocketAddr,
     },
-    Stop {
+    SocksStop {
         id: String,
     },
-    Vpn {
+    /// The FFI starts the packet plane here; `tun` selects the TUN backend elsewhere.
+    VpnStart {
         peer: String,
         routes: Vec<ipnet::IpNet>,
+        #[serde(default)]
         tun: String,
     },
-    StopVpn {
+    VpnStop {
         id: String,
     },
     VpnStats {
         id: String,
     },
+    TunnelFailure {
+        id: String,
+    },
+}
+
+impl Command {
+    /// Parse one command, rewriting legacy `op` names. `stop` was the only op that
+    /// named no noun, so it is resolved to the matching `<kind>_stop` through the
+    /// tunnel registry. Returns the canonical op so transports can branch on it.
+    pub fn parse(
+        mut value: Value,
+        kind_of: impl FnOnce(&str) -> Option<String>,
+    ) -> Result<(String, Command)> {
+        let legacy = value["op"].as_str().context("missing op")?;
+        let op = match legacy {
+            "stop" => {
+                let id = value["id"].as_str().context("missing id")?;
+                match kind_of(id)
+                    .with_context(|| format!("unknown tunnel {id}"))?
+                    .as_str()
+                {
+                    "forward" => "forward_stop",
+                    "reverse" => "reverse_stop",
+                    "socks" => "socks_stop",
+                    "vpn" => "vpn_stop",
+                    kind => anyhow::bail!("cannot stop a {kind} tunnel"),
+                }
+            }
+            legacy => canonical_op(legacy).unwrap_or(legacy),
+        }
+        .to_string();
+        value["op"] = json!(op);
+        Ok((op, serde_json::from_value(value)?))
+    }
 }
 impl Node {
     pub async fn command(self: &Arc<Self>, command: Command) -> Result<Value> {
@@ -89,47 +164,47 @@ impl Node {
                 self.endpoint.network_change().await;
                 Value::Null
             }
-            Command::Invite => {
+            Command::InviteCreate => {
                 let i = self.invitation()?;
                 json!({"uri":i.uri()?,"id":i.id,"expires":i.expires})
             }
-            Command::CancelInvite { id } => {
+            Command::InviteCancel { id } => {
                 self.cancel_invitation(&id);
                 Value::Null
             }
-            Command::Pair { uri, device } => json!({"id":self.pair(&uri,&device).await?}),
-            Command::CancelPair => {
+            Command::PairStart { uri, device } => json!({"id":self.pair(&uri,&device).await?}),
+            Command::PairCancel => {
                 self.cancel_pair();
                 Value::Null
             }
-            Command::Pending => self.pending(),
+            Command::PeerPending => self.pending(),
             Command::PairingPolicy { policy } => {
                 self.set_pairing_policy(policy)?;
                 Value::Null
             }
-            Command::Approve { id, accept } => {
+            Command::PeerApprove { id, accept } => {
                 self.approve(&id, accept)?;
                 Value::Null
             }
-            Command::Rename { peer, name } => {
+            Command::PeerRename { peer, name } => {
                 self.rename(&peer, &name)?;
                 Value::Null
             }
-            Command::Revoke { peer } => {
+            Command::PeerRevoke { peer } => {
                 self.revoke(&peer)?;
                 Value::Null
             }
-            Command::Disconnect { peer } => {
+            Command::PeerDisconnect { peer } => {
                 let id = self.peer(&peer)?.addr.id.to_string();
                 self.disconnect(&id);
                 Value::Null
             }
-            Command::Services { peer } => self.services(&peer).await?,
-            Command::Policy { peer, policy } => {
+            Command::PeerServices { peer } => self.services(&peer).await?,
+            Command::PeerPolicy { peer, policy } => {
                 self.set_policy(&peer, policy)?;
                 Value::Null
             }
-            Command::Allow {
+            Command::PeerAllow {
                 peer,
                 service,
                 destination,
@@ -143,21 +218,23 @@ impl Node {
                 self.set_policy(&peer, p)?;
                 Value::Null
             }
-            Command::Forward {
+            Command::ForwardStart {
                 peer,
                 listen,
                 service,
             } => json!({"id":self.forward(&peer,listen,service).await?}),
             Command::TunnelFailure { id } => self.tunnel_failure(&id),
-            Command::Reverse { peer, port, target } => {
+            Command::ReverseStart { peer, port, target } => {
                 json!({"id":self.reverse(&peer,port,target).await?})
             }
-            Command::Socks { peer, listen } => json!({"id":self.socks(&peer,listen).await?}),
-            Command::Stop { id } => {
+            Command::SocksStart { peer, listen } => json!({"id":self.socks(&peer,listen).await?}),
+            Command::ForwardStop { id }
+            | Command::ReverseStop { id }
+            | Command::SocksStop { id } => {
                 self.stop(&id);
                 Value::Null
             }
-            Command::Vpn { peer, routes, tun } => {
+            Command::VpnStart { peer, routes, tun } => {
                 #[cfg(target_os = "linux")]
                 {
                     json!({"id":self.vpn_tun(&peer,routes,&tun).await?})
@@ -170,11 +247,76 @@ impl Node {
                     )
                 }
             }
-            Command::StopVpn { id } => {
+            Command::VpnStop { id } => {
                 self.stop_vpn(&id);
                 Value::Null
             }
             Command::VpnStats { id } => self.vpn_stats(&id),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Legacy names resolve, and only the canonical name reaches the enum.
+    fn parse(value: Value) -> Result<(String, Command)> {
+        Command::parse(value, |id| (id == "tunnel").then(|| "socks".into()))
+    }
+
+    #[test]
+    fn legacy_ops_are_rewritten_to_their_canonical_noun_verb_name() {
+        for (legacy, current) in LEGACY_OPS {
+            assert_eq!(canonical_op(legacy), Some(current));
+        }
+        let (op, _) = parse(json!({"op": "pending"})).unwrap();
+        assert_eq!(op, "peer_pending");
+        assert!(
+            serde_json::from_value::<Command>(json!({"op": "cancel_pair"})).is_err(),
+            "legacy names must only be accepted through Command::parse"
+        );
+    }
+
+    #[test]
+    fn every_tunnel_noun_has_a_start_and_a_stop() {
+        let tunnels = [
+            (
+                "forward",
+                json!({"peer": "p", "listen": "127.0.0.1:0", "service": "s"}),
+            ),
+            (
+                "reverse",
+                json!({"peer": "p", "port": 1, "target": "127.0.0.1:2"}),
+            ),
+            ("socks", json!({"peer": "p", "listen": "127.0.0.1:0"})),
+            ("vpn", json!({"peer": "p", "routes": []})),
+        ];
+        for (noun, fields) in tunnels {
+            let mut start = fields.clone();
+            start["op"] = json!(format!("{noun}_start"));
+            assert_eq!(parse(start).unwrap().0, format!("{noun}_start"));
+            let stop = json!({"op": format!("{noun}_stop"), "id": "x"});
+            assert_eq!(parse(stop).unwrap().0, format!("{noun}_stop"));
+        }
+        assert!(
+            serde_json::from_value::<Command>(json!({"op": "tunnel_stop", "id": "x"})).is_err(),
+            "there is no generic stop; it would have no matching start"
+        );
+    }
+
+    #[test]
+    fn the_legacy_stop_op_is_split_by_tunnel_kind() {
+        assert_eq!(
+            parse(json!({"op": "stop", "id": "tunnel"})).unwrap().0,
+            "socks_stop"
+        );
+        assert!(parse(json!({"op": "stop", "id": "missing"})).is_err());
+    }
+
+    #[test]
+    fn vpn_start_defaults_the_tun_field_for_the_packet_plane() {
+        let (_, command) = parse(json!({"op": "vpn_start", "peer": "p", "routes": []})).unwrap();
+        assert!(matches!(command, Command::VpnStart { tun, .. } if tun.is_empty()));
     }
 }

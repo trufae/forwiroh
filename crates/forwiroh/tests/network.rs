@@ -282,7 +282,7 @@ async fn forward_can_listen_on_all_interfaces_and_stops_listener() {
     let home_id = pair(&home, &phone).await;
     let (target, echo) = echo().await;
     let result = phone
-        .command(forwiroh::control::Command::Forward {
+        .command(forwiroh::control::Command::ForwardStart {
             peer: home_id,
             listen: "0.0.0.0:0".parse().unwrap(),
             service: target.to_string(),

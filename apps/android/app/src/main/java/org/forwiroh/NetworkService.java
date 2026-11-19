@@ -180,7 +180,7 @@ public final class NetworkService extends VpnService {
     private void stopVpnNow() {
         pumping = false;
         if (vpnId != null) {
-            try { core.command(json("op", "stop_vpn", "id", vpnId)); } catch (Exception e) { if (!stopping) report(e); }
+            try { core.command(json("op", "vpn_stop", "id", vpnId)); } catch (Exception e) { if (!stopping) report(e); }
         }
         join(outgoing); join(incoming);
         outgoing = null; incoming = null;

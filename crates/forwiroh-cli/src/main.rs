@@ -148,7 +148,8 @@ async fn serve(path: &Path, name: &str, mode: TransportMode) -> Result<()> {
             accepted = listener.accept(), if clients.len() < 16 => {
                 let mut socket = accepted?; let node = node.clone();
                 clients.spawn(async move {
-                    let command: Command = tokio::time::timeout(wire::SETUP_TIMEOUT,wire::read_limit(&mut socket, wire::MAX_CONTROL)).await??;
+                    let input: Value = tokio::time::timeout(wire::SETUP_TIMEOUT,wire::read_limit(&mut socket, wire::MAX_CONTROL)).await??;
+                    let (_, command) = Command::parse(input, |id| node.tunnel_kind(id))?;
                     let result = match node.command(command).await { Ok(v) => json!({"data":v}), Err(e) => json!({"error":e.to_string()}) };
                     wire::write_limit(&mut socket,&result, wire::MAX_CONTROL).await?; Ok::<_,anyhow::Error>(())
                 });
@@ -260,7 +261,7 @@ async fn pair(path: &Path, accept: Option<String>) -> Result<()> {
         };
         let v = rpc(
             path,
-            &Command::Pair {
+            &Command::PairStart {
                 uri,
                 device: std::env::consts::OS.into(),
             },
@@ -269,7 +270,7 @@ async fn pair(path: &Path, accept: Option<String>) -> Result<()> {
         println!("Paired: {v}");
         return Ok(());
     }
-    let invitation = rpc(path, &Command::Invite).await?;
+    let invitation = rpc(path, &Command::InviteCreate).await?;
     let uri = invitation["uri"]
         .as_str()
         .context("missing invitation URI")?;
@@ -285,7 +286,7 @@ async fn pair(path: &Path, accept: Option<String>) -> Result<()> {
     // query avoids an additional long-lived admin protocol.
     let result = async {
         loop {
-            let pending = rpc(path, &Command::Pending).await?;
+            let pending = rpc(path, &Command::PeerPending).await?;
             if let Some(p) = pending
                 .as_array()
                 .and_then(|v| v.iter().find(|p| p["id"] == id))
@@ -297,7 +298,7 @@ async fn pair(path: &Path, accept: Option<String>) -> Result<()> {
                 let answer = terminal_line().await?;
                 rpc(
                     path,
-                    &Command::Approve {
+                    &Command::PeerApprove {
                         id: id.clone(),
                         accept: answer.trim().eq_ignore_ascii_case("y"),
                     },
@@ -309,7 +310,7 @@ async fn pair(path: &Path, accept: Option<String>) -> Result<()> {
         }
     };
     let result = tokio::select! { r = tokio::time::timeout(std::time::Duration::from_secs(300),result) => r.unwrap_or_else(|e| Err(e.into())), _ = tokio::signal::ctrl_c() => Ok(()) };
-    let _ = rpc(path, &Command::CancelInvite { id }).await;
+    let _ = rpc(path, &Command::InviteCancel { id }).await;
     result
 }
 #[tokio::main]
@@ -336,36 +337,51 @@ async fn main() -> Result<()> {
             return Ok(());
         }
         Cmd::Status | Cmd::Peers => Command::Status,
-        Cmd::CancelPair => Command::CancelPair,
-        Cmd::Pending => Command::Pending,
-        Cmd::Approve { id, reject } => Command::Approve {
+        Cmd::CancelPair => Command::PairCancel,
+        Cmd::Pending => Command::PeerPending,
+        Cmd::Approve { id, reject } => Command::PeerApprove {
             id,
             accept: !reject,
         },
-        Cmd::Rename { peer, name } => Command::Rename { peer, name },
+        Cmd::Rename { peer, name } => Command::PeerRename { peer, name },
         Cmd::Allow {
             peer,
             service,
             destination,
-        } => Command::Allow {
+        } => Command::PeerAllow {
             peer,
             service,
             destination,
         },
-        Cmd::Policy { peer, file } => Command::Policy {
+        Cmd::Policy { peer, file } => Command::PeerPolicy {
             peer,
             policy: serde_json::from_slice(&std::fs::read(file)?)?,
         },
-        Cmd::Revoke { peer } => Command::Revoke { peer },
-        Cmd::Disconnect { peer } => Command::Disconnect { peer },
-        Cmd::Connect { peer } => Command::Services { peer },
-        Cmd::Stop { id } => Command::Stop { id },
-        Cmd::StopVpn { id } => Command::StopVpn { id },
+        Cmd::Revoke { peer } => Command::PeerRevoke { peer },
+        Cmd::Disconnect { peer } => Command::PeerDisconnect { peer },
+        Cmd::Connect { peer } => Command::PeerServices { peer },
+        // The command API stops a tunnel by kind; the CLI keeps one verb and looks it up.
+        Cmd::Stop { id } => {
+            let status = rpc(&cli.state, &Command::Status).await?;
+            let kind = status["tunnels"]
+                .as_array()
+                .and_then(|tunnels| tunnels.iter().find(|t| t["id"] == id.as_str()))
+                .and_then(|tunnel| tunnel["kind"].as_str())
+                .with_context(|| format!("unknown tunnel {id}"))?;
+            match kind {
+                "forward" => Command::ForwardStop { id },
+                "reverse" => Command::ReverseStop { id },
+                "socks" => Command::SocksStop { id },
+                "vpn" => Command::VpnStop { id },
+                other => anyhow::bail!("cannot stop a {other} tunnel"),
+            }
+        }
+        Cmd::StopVpn { id } => Command::VpnStop { id },
         Cmd::Forward { peer, rule } => {
             let (port, service) = rule
                 .split_once(':')
                 .context("expected local-port:host:port or local-port:service")?;
-            Command::Forward {
+            Command::ForwardStart {
                 peer,
                 listen: SocketAddr::from((Ipv4Addr::LOCALHOST, port.parse::<u16>()?)),
                 service: service.into(),
@@ -387,16 +403,16 @@ async fn main() -> Result<()> {
                         .context("reverse target must resolve to loopback")?
                 }
             };
-            Command::Reverse {
+            Command::ReverseStart {
                 peer,
                 port: port.parse()?,
                 target,
             }
         }
-        Cmd::Socks { peer, listen } => Command::Socks { peer, listen },
+        Cmd::Socks { peer, listen } => Command::SocksStart { peer, listen },
         Cmd::Vpn { peer, route, tun } => {
             ensure!(!route.is_empty(), "specify routes");
-            Command::Vpn {
+            Command::VpnStart {
                 peer,
                 routes: route
                     .iter()

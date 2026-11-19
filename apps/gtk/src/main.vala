@@ -150,7 +150,7 @@ namespace Forwiroh {
                         if (text (peer, "id") == selected) peer_status.label = boolean (peer, "connected") ? "Connected · " + text (peer, "path", "Iroh") : "Disconnected";
                     }
                     rebuild_tunnels ();
-                    var requests = yield core.request (make_command ("pending"));
+                    var requests = yield core.request (make_command ("peer_pending"));
                     pending = requests.get_array ();
                     rebuild_pending (pending_box);
                     if (pair_pending != null) rebuild_pending (pair_pending);
@@ -190,7 +190,7 @@ namespace Forwiroh {
         }
         private async void approve (string id, bool accept, Gtk.Box row) {
             if (!row.sensitive) return; row.sensitive = false;
-            var cmd = make_command ("approve"); cmd.get_object ().set_string_member ("id", id); cmd.get_object ().set_boolean_member ("accept", accept);
+            var cmd = make_command ("peer_approve"); cmd.get_object ().set_string_member ("id", id); cmd.get_object ().set_boolean_member ("accept", accept);
             if (!(yield run (cmd, accept ? "Pairing approved" : "Pairing rejected"))) row.sensitive = true;
         }
         private void show_peer (Json.Object peer) {
@@ -200,7 +200,7 @@ namespace Forwiroh {
             peer_status = label (boolean (peer, "connected") ? "Connected · " + text (peer, "path", "Iroh") : "Disconnected"); detail.append (peer_status);
             var row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
             var connect = button ("Connect / refresh", () => connect_peer.begin (selected)); row.append (connect);
-            row.append (button ("Disconnect", () => { var cmd = peer_command ("disconnect"); run.begin (cmd, "Disconnected"); })); detail.append (row);
+            row.append (button ("Disconnect", () => { var cmd = peer_command ("peer_disconnect"); run.begin (cmd, "Disconnected"); })); detail.append (row);
             row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
             row.append (button ("Forward a port…", () => tunnel_form ("forward")));
             row.append (button ("Reverse forward…", () => tunnel_form ("reverse")));
@@ -212,19 +212,19 @@ namespace Forwiroh {
             var access = new Gtk.CheckButton.with_label ("Allow connections from this paired peer");
             access.active = !boolean (policy, "restricted");
             access.toggled.connect (() => {
-                var cmd = peer_command ("policy"); var node = peer.get_member ("policy").copy ();
+                var cmd = peer_command ("peer_policy"); var node = peer.get_member ("policy").copy ();
                 node.get_object ().set_boolean_member ("restricted", !access.active); cmd.get_object ().set_member ("policy", node);
                 run.begin (cmd, "Access settings saved");
             }); detail.append (access);
             var name = new Gtk.Entry (); name.text = text (peer, "name"); name.placeholder_text = "Device name";
             row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8); row.append (name);
-            row.append (button ("Rename", () => { var cmd = peer_command ("rename"); cmd.get_object ().set_string_member ("name", name.text); run.begin (cmd, "Device renamed"); })); detail.append (row);
+            row.append (button ("Rename", () => { var cmd = peer_command ("peer_rename"); cmd.get_object ().set_string_member ("name", name.text); run.begin (cmd, "Device renamed"); })); detail.append (row);
             var remove = button ("Remove and revoke…", () => confirm_revoke ()); remove.add_css_class ("destructive-action"); detail.append (remove);
         }
         private Json.Node peer_command (string op) { var cmd = make_command (op); cmd.get_object ().set_string_member ("peer", selected); return cmd; }
         private async void connect_peer (string id) {
             peer_status.label = "Connecting…";
-            var cmd = make_command ("services"); cmd.get_object ().set_string_member ("peer", id);
+            var cmd = make_command ("peer_services"); cmd.get_object ().set_string_member ("peer", id);
             yield run (cmd, "Connected");
             yield refresh ();
         }
@@ -236,7 +236,7 @@ namespace Forwiroh {
                 string id = text (tunnel, "id"); string kind = text (tunnel, "kind");
                 var row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
                 var description = label (kind + ": " + text (tunnel, "detail"), true); description.hexpand = true; row.append (description);
-                row.append (button ("Stop", () => { var cmd = make_command (kind == "vpn" ? "stop_vpn" : "stop"); cmd.get_object ().set_string_member ("id", id); run.begin (cmd, "Tunnel stopped"); })); tunnels_box.append (row);
+                row.append (button ("Stop", () => { var cmd = make_command (kind + "_stop"); cmd.get_object ().set_string_member ("id", id); run.begin (cmd, "Tunnel stopped"); })); tunnels_box.append (row);
             }
             if (tunnels_box.get_first_child () == null) tunnels_box.append (label ("No active tunnels"));
         }
@@ -249,7 +249,7 @@ namespace Forwiroh {
             var content = new Gtk.Box (Gtk.Orientation.VERTICAL, 16);
             content.append (label ("Revoke this device and close its tunnels?"));
             var window = make_modal ("Revoke device", content);
-            var cmd = peer_command ("revoke");
+            var cmd = peer_command ("peer_revoke");
             content.append (button ("Cancel", () => window.close ()));
             var revoke = button ("Revoke", () => { run.begin (cmd, "Device revoked"); window.close (); }); revoke.add_css_class ("destructive-action"); content.append (revoke); window.present ();
         }
@@ -279,15 +279,15 @@ namespace Forwiroh {
             var accept = new Gtk.Button.with_label ("Accept & pair"); content.append (accept);
             accept.clicked.connect (() => {
                 if (pairing) return;
-                var cmd = make_command ("pair"); cmd.get_object ().set_string_member ("uri", entry.text.strip ()); cmd.get_object ().set_string_member ("device", "Linux");
+                var cmd = make_command ("pair_start"); cmd.get_object ().set_string_member ("uri", entry.text.strip ()); cmd.get_object ().set_string_member ("device", "Linux");
                 pairing = true; accept.sensitive = false; accept.label = "Waiting for approval…";
                 run.begin (cmd, "Device paired", (obj, res) => { bool success = run.end (res); pairing = false; accept.sensitive = true; accept.label = "Accept & pair"; if (success && pair_window != null) pair_window.close (); });
             });
-            content.append (button ("Cancel outgoing pairing", () => run.begin (make_command ("cancel_pair"), "Pairing cancelled")));
+            content.append (button ("Cancel outgoing pairing", () => run.begin (make_command ("pair_cancel"), "Pairing cancelled")));
             pair_window = make_modal ("Pair a device", content, 610);
             pair_window.close_request.connect (() => {
                 if (pairing) return true;
-                if (invitation_id != "") { var cmd = make_command ("cancel_invite"); cmd.get_object ().set_string_member ("id", invitation_id); run.begin (cmd, "Invitation closed"); }
+                if (invitation_id != "") { var cmd = make_command ("invite_cancel"); cmd.get_object ().set_string_member ("id", invitation_id); run.begin (cmd, "Invitation closed"); }
                 if (expiry_timer != 0) { Source.remove (expiry_timer); expiry_timer = 0; }
                 invitation_id = invitation_uri = ""; qr_width = 0;
                 pair_window = null; pair_pending = null; qr_area = null; expiry_label = null; copy_button = null; generate_button = null;
@@ -299,10 +299,10 @@ namespace Forwiroh {
             if (generate_button == null) return;
             generate_button.sensitive = false;
             try {
-                if (invitation_id != "") { var cancel = make_command ("cancel_invite"); cancel.get_object ().set_string_member ("id", invitation_id); yield core.request (cancel); }
-                var response = yield core.request (make_command ("invite")); var obj = response.get_object ();
+                if (invitation_id != "") { var cancel = make_command ("invite_cancel"); cancel.get_object ().set_string_member ("id", invitation_id); yield core.request (cancel); }
+                var response = yield core.request (make_command ("invite_create")); var obj = response.get_object ();
                 string id = text (obj, "id");
-                if (pair_window == null) { var cancel = make_command ("cancel_invite"); cancel.get_object ().set_string_member ("id", id); yield core.request (cancel); return; }
+                if (pair_window == null) { var cancel = make_command ("invite_cancel"); cancel.get_object ().set_string_member ("id", id); yield core.request (cancel); return; }
                 invitation_id = id; invitation_uri = text (obj, "uri"); invitation_expires = obj.get_int_member ("expires");
                 var matrix = unpack (take_string (Native.qr_code (invitation_uri))).get_object ();
                 qr_width = (int) matrix.get_int_member ("width"); qr_pixels = array (matrix, "pixels"); qr_area.queue_draw (); copy_button.sensitive = true;
@@ -346,7 +346,7 @@ namespace Forwiroh {
             window.close_request.connect (() => starting);
             start.clicked.connect (() => {
                 if (starting) return;
-                var cmd = make_command (kind); var obj = cmd.get_object (); obj.set_string_member ("peer", id);
+                var cmd = make_command (kind + "_start"); var obj = cmd.get_object (); obj.set_string_member ("peer", id);
                 uint64 number = 0, target = 0;
                 if (kind != "vpn" && (!uint64.try_parse (port.text, out number) || number == 0 || number > 65535)) { form_error.label = "Enter a listening port between 1 and 65535"; return; }
                 if (host != null && target_port != null && (!uint64.try_parse (target_port.text, out target) || target == 0 || target > 65535 || host.text.strip () == "")) { form_error.label = "Enter a destination host and port between 1 and 65535"; return; }
@@ -365,8 +365,8 @@ namespace Forwiroh {
         }
         private async void start_tunnel (Json.Node cmd, string service, Gtk.Window window, Gtk.Box content, Gtk.Button start, Gtk.Label form_error) {
             try {
-                if (text (cmd.get_object (), "op") == "forward") {
-                    var query = make_command ("services"); query.get_object ().set_string_member ("peer", text (cmd.get_object (), "peer"));
+                if (text (cmd.get_object (), "op") == "forward_start") {
+                    var query = make_command ("peer_services"); query.get_object ().set_string_member ("peer", text (cmd.get_object (), "peer"));
                     var response = yield core.request (query);
                     if (boolean (response.get_object (), "restricted", true)) cmd.get_object ().set_string_member ("service", service);
                 }

@@ -1,5 +1,5 @@
 <resources>
-    <color name="icon_background">#003D42</color>
+    <color name="icon_background">#013C42</color>
     <string name="app_name">Forwiroh</string>
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>

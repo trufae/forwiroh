@@ -147,10 +147,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
                             throw ForwirohError(message: "Invalid VPN command")
                         }
                         let op = command["op"] as? String ?? ""
-                        if ["forward", "reverse", "socks"].contains(op), let forward = value["id"] as? String {
+                        if ["forward_start", "reverse_start", "socks_start"].contains(op), let forward = value["id"] as? String {
                             self.activeForwards[forward] = command
                         }
-                        if op == "stop", let forward = command["id"] as? String { self.activeForwards.removeValue(forKey: forward) }
+                        if op.hasSuffix("_stop"), let forward = command["id"] as? String { self.activeForwards.removeValue(forKey: forward) }
                         // Only persist currently active listeners. Disconnect/revoke can
                         // remove several at once, including listeners on another peer.
                         if let status = try? core.command(["op": "status"]), let tunnels = status["tunnels"] as? [[String: Any]] {

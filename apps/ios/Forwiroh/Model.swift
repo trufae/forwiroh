@@ -258,9 +258,10 @@ final class Model: ObservableObject {
         if let core {
             result = try await coreRequest(core, value)
             let op = value["op"] as? String ?? ""
-            if ["forward", "reverse", "socks"].contains(op), let id = result["id"] as? String { forwardCommands[id] = value }
-            if op == "stop", let id = value["id"] as? String { forwardCommands.removeValue(forKey: id) }
-            if ["forward", "reverse", "socks", "stop"].contains(op) {
+            let starts = ["forward_start", "reverse_start", "socks_start"]
+            if starts.contains(op), let id = result["id"] as? String { forwardCommands[id] = value }
+            if op.hasSuffix("_stop"), let id = value["id"] as? String { forwardCommands.removeValue(forKey: id) }
+            if starts.contains(op) || op.hasSuffix("_stop") {
                 try RustCore.saveForwards(Array(forwardCommands.values))
             }
         } else {
@@ -272,7 +273,7 @@ final class Model: ObservableObject {
                 // Both completion paths run on MainActor; take the continuation once.
                 var pending: CheckedContinuation<Data, Error>? = continuation
                 let timeout = Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(value["op"] as? String == "pair" ? 310 : 30))
+                    try? await Task.sleep(for: .seconds(value["op"] as? String == "pair_start" ? 310 : 30))
                     if let next = pending { pending = nil; next.resume(throwing: ForwirohError(message: "VPN command timed out")) }
                 }
                 do {
@@ -333,7 +334,7 @@ final class Model: ObservableObject {
         error = nil
         pairing = true; defer { pairing = false }
         do {
-            _ = try await request(["op": "pair", "uri": uri.trimmingCharacters(in: .whitespacesAndNewlines), "device": "iOS"])
+            _ = try await request(["op": "pair_start", "uri": uri.trimmingCharacters(in: .whitespacesAndNewlines), "device": "iOS"])
             await refresh()
         } catch { if error.localizedDescription != "pairing cancelled" { self.error = error.localizedDescription } }
     }

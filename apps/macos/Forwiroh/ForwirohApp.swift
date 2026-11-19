@@ -113,7 +113,7 @@ struct PendingView: View {
         approving = true
         Task {
             defer { approving = false }
-            _ = await model.run(["op": "approve", "id": id, "accept": accept], notice: accept ? "Pairing approved" : "Pairing rejected")
+            _ = await model.run(["op": "peer_approve", "id": id, "accept": accept], notice: accept ? "Pairing approved" : "Pairing rejected")
         }
     }
 }
@@ -154,7 +154,7 @@ struct PairingView: View {
                     HStack {
                         Button(importing ? "Reading QR…" : "Read QR from image…") { showImporter = true }.disabled(importing || model.pairing)
                         Spacer()
-                        if model.pairing { ProgressView().controlSize(.small); Button("Cancel") { Task { _ = await model.run(["op": "cancel_pair"], notice: "Pairing cancelled") } } }
+                        if model.pairing { ProgressView().controlSize(.small); Button("Cancel") { Task { _ = await model.run(["op": "pair_cancel"], notice: "Pairing cancelled") } } }
                         Button(model.pairing ? "Waiting for approval…" : "Accept & pair") {
                             Task { if await model.pair(uri) { dismiss() } }
                         }.disabled(model.pairing || invitationSummary(uri) == nil)
@@ -232,7 +232,7 @@ struct PeerDetailView: View {
                 HStack {
                     Button(connectionBusy ? "Connecting…" : "Connect / refresh") { Task { await connect() } }
                     if connectionBusy { ProgressView().controlSize(.small) }
-                    Button("Disconnect") { Task { _ = await model.run(["op": "disconnect", "peer": peer.id], notice: "Disconnected") } }
+                    Button("Disconnect") { Task { _ = await model.run(["op": "peer_disconnect", "peer": peer.id], notice: "Disconnected") } }
                 }.disabled(connectionBusy || !model.ready)
             }
             Section("Port forwarding") {
@@ -250,7 +250,7 @@ struct PeerDetailView: View {
                     HStack {
                         VStack(alignment: .leading) { Text(tunnel.kind.capitalized); Text(tunnel.detail).font(.caption.monospaced()) }
                         Spacer()
-                        Button("Stop", role: .destructive) { Task { _ = await model.run(["op": "stop", "id": tunnel.id], notice: "Tunnel stopped") } }
+                        Button("Stop", role: .destructive) { Task { _ = await model.run(["op": "\(tunnel.kind)_stop", "id": tunnel.id], notice: "Tunnel stopped") } }
                     }
                 }
             }
@@ -260,27 +260,27 @@ struct PeerDetailView: View {
                     Task {
                         defer { accessBusy = false }
                         var policy = peer.policy; policy["restricted"] = !allow
-                        _ = await model.run(["op": "policy", "peer": peer.id, "policy": policy], notice: "Access settings saved")
+                        _ = await model.run(["op": "peer_policy", "peer": peer.id, "policy": policy], notice: "Access settings saved")
                     }
                 })).disabled(accessBusy || !model.ready)
                 Text("Turning this off applies this peer's configured service and port restrictions. Changing access closes its existing sessions.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Device") {
-                HStack { TextField("New name", text: $name); Button("Rename") { Task { _ = await model.run(["op": "rename", "peer": peer.id, "name": name], notice: "Device renamed") } }.disabled(name.isEmpty) }
+                HStack { TextField("New name", text: $name); Button("Rename") { Task { _ = await model.run(["op": "peer_rename", "peer": peer.id, "name": name], notice: "Device renamed") } }.disabled(name.isEmpty) }
                 Button("Remove and revoke…", role: .destructive) { revoke = true }
             }.disabled(!model.ready)
         }.formStyle(.grouped).navigationTitle(peer.name)
             .task(id: peer.id) { name = peer.name; await connect() }
             .sheet(item: $form) { kind in TunnelForm(peer: peer, kind: kind, restricted: restricted, services: services) }
             .confirmationDialog("Revoke \(peer.name) and close its tunnels?", isPresented: $revoke) {
-                Button("Revoke device", role: .destructive) { Task { _ = await model.run(["op": "revoke", "peer": peer.id], notice: "Device revoked") } }
+                Button("Revoke device", role: .destructive) { Task { _ = await model.run(["op": "peer_revoke", "peer": peer.id], notice: "Device revoked") } }
             }
     }
     private func connect() async {
         guard !connectionBusy else { return }
         connectionBusy = true; defer { connectionBusy = false }
         do {
-            let data = try await model.request(["op": "services", "peer": peer.id])
+            let data = try await model.request(["op": "peer_services", "peer": peer.id])
             restricted = data["restricted"] as? Bool ?? true
             services = data["services"] as? [String] ?? []
             await model.refresh()
@@ -334,7 +334,7 @@ struct TunnelForm: View {
     private func start() async {
         starting = true; defer { starting = false }
         guard let number = UInt16(port), number > 0 else { model.error = "Enter a listening port between 1 and 65535"; return }
-        var command: [String: Any] = ["op": kind.rawValue, "peer": peer.id]
+        var command: [String: Any] = ["op": "\(kind.rawValue)_start", "peer": peer.id]
         if kind == .socks { command["listen"] = "127.0.0.1:\(number)" }
         else {
             guard let target = UInt16(targetPort), target > 0 else { model.error = "Enter a destination port between 1 and 65535"; return }

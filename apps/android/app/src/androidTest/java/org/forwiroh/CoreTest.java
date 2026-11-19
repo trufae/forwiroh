@@ -62,23 +62,23 @@ public class CoreTest {
         try (RustCore server = open("server", 41); RustCore client = open("client", 42);
              ServerSocket echo = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
             echo.setSoTimeout(20000);
-            String uri = ((JSONObject)server.command(json("op", "invite"))).getString("uri");
-            Future<Object> paired = workers.submit(() -> client.command(json("op", "pair", "uri", uri, "device", "Android")));
+            String uri = ((JSONObject)server.command(json("op", "invite_create"))).getString("uri");
+            Future<Object> paired = workers.submit(() -> client.command(json("op", "pair_start", "uri", uri, "device", "Android")));
             JSONArray pending = new JSONArray();
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
             while (pending.length() == 0 && System.nanoTime() < deadline) {
-                pending = (JSONArray)server.command(json("op", "pending")); Thread.sleep(50);
+                pending = (JSONArray)server.command(json("op", "peer_pending")); Thread.sleep(50);
             }
             assertEquals(1, pending.length());
-            server.command(json("op", "approve", "id", pending.getJSONObject(0).getString("id"), "accept", true));
+            server.command(json("op", "peer_approve", "id", pending.getJSONObject(0).getString("id"), "accept", true));
             paired.get(20, TimeUnit.SECONDS);
             String serverId = ((JSONObject)server.command(json("op", "status"))).getString("id");
             String clientId = ((JSONObject)client.command(json("op", "status"))).getString("id");
-            client.command(json("op", "rename", "peer", serverId, "name", "Home 🐱"));
+            client.command(json("op", "peer_rename", "peer", serverId, "name", "Home 🐱"));
             assertEquals("Home 🐱", ((JSONObject)client.command(json("op", "status"))).getJSONArray("peers").getJSONObject(0).getString("name"));
             int port;
             try (ServerSocket unused = new ServerSocket(0)) { port = unused.getLocalPort(); }
-            JSONObject tunnel = (JSONObject)client.command(json("op", "forward", "peer", serverId,
+            JSONObject tunnel = (JSONObject)client.command(json("op", "forward_start", "peer", serverId,
                     "listen", "127.0.0.1:" + port, "service", "127.0.0.1:" + echo.getLocalPort()));
             byte[] message = RustCore.utf8("Android JNI → Iroh → TCP 🐱");
             Future<?> echoed = workers.submit(() -> {
@@ -97,9 +97,9 @@ public class CoreTest {
                 assertArrayEquals(message, received); assertEquals(-1, socket.getInputStream().read());
             }
             echoed.get(10, TimeUnit.SECONDS);
-            client.command(json("op", "stop", "id", tunnel.getString("id")));
+            client.command(json("op", "forward_stop", "id", tunnel.getString("id")));
             assertEquals(0, ((JSONObject)client.command(json("op", "status"))).getJSONArray("tunnels").length());
-            server.command(json("op", "revoke", "peer", clientId));
+            server.command(json("op", "peer_revoke", "peer", clientId));
             assertEquals(0, ((JSONObject)server.command(json("op", "status"))).getJSONArray("peers").length());
         } finally { workers.shutdownNow(); }
     }

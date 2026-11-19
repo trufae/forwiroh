@@ -988,6 +988,9 @@ impl Node {
         }
         self.emit(json!({"event":"tunnels_changed"}));
     }
+    pub fn tunnel_kind(&self, id: &str) -> Option<String> {
+        self.tunnels.lock().unwrap().get(id).map(|t| t.kind.clone())
+    }
     pub fn stop(&self, id: &str) {
         self.remove_tunnel(id);
     }

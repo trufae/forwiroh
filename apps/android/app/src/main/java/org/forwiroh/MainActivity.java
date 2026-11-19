@@ -64,8 +64,8 @@ public final class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle("Pair a device").setView(uri).setNegativeButton("Cancel", null)
                     .setPositiveButton("Review", (d,w) -> reviewPair(uri.getText().toString().trim())).show();
         });
-        button(root, "Show invitation QR", () -> request(json("op", "invite"), data -> showInvite((JSONObject)data)));
-        button(root, "Cancel outgoing pairing", () -> run(json("op", "cancel_pair")));
+        button(root, "Show invitation QR", () -> request(json("op", "invite_create"), data -> showInvite((JSONObject)data)));
+        button(root, "Cancel outgoing pairing", () -> run(json("op", "pair_cancel")));
         pending = column(); root.addView(pending);
         title(root, "Peers"); peers = column(); root.addView(peers);
         title(root, "Active tunnels"); tunnels = column(); root.addView(tunnels);
@@ -132,11 +132,11 @@ public final class MainActivity extends Activity {
                 for (int i = 0; i < list.length(); i++) {
                     JSONObject t = list.getJSONObject(i);
                     text(tunnels, t.getString("kind") + " · " + t.getString("detail"));
-                    button(tunnels, "Stop tunnel", () -> run(json("op", "stop", "id", t.optString("id"))));
+                    button(tunnels, "Stop tunnel", () -> run(json("op", t.optString("kind") + "_stop", "id", t.optString("id"))));
                 }
             } catch (Exception e) { error(e.getMessage()); }
         });
-        source.request(json("op", "pending"), (data, message) -> {
+        source.request(json("op", "peer_pending"), (data, message) -> {
             if (isDestroyed() || service != source || message != null) return;
             pending.removeAllViews();
             try {
@@ -146,8 +146,8 @@ public final class MainActivity extends Activity {
                     text(pending, "Pairing request: " + p.getString("name") + " (" + p.getString("device") + ")\n" + p.getString("peer"));
                     button(pending, "Review request", () -> new AlertDialog.Builder(this).setTitle("Trust this device?")
                             .setMessage(p.optString("name") + "\n" + p.optString("peer") + "\nVerify this identity with the other device. Pairing grants TCP access unless restricted.")
-                            .setNegativeButton("Reject", (d,w) -> run(json("op", "approve", "id", p.optString("id"), "accept", false)))
-                            .setPositiveButton("Trust", (d,w) -> run(json("op", "approve", "id", p.optString("id"), "accept", true))).show());
+                            .setNegativeButton("Reject", (d,w) -> run(json("op", "peer_approve", "id", p.optString("id"), "accept", false)))
+                            .setPositiveButton("Trust", (d,w) -> run(json("op", "peer_approve", "id", p.optString("id"), "accept", true))).show());
                 }
             } catch (Exception e) { error(e.getMessage()); }
         });
@@ -160,18 +160,18 @@ public final class MainActivity extends Activity {
                     switch (which) {
                         case 0: case 1: case 2: tunnelDialog(id, which); break;
                         case 3: vpnDialog(id); break;
-                        case 4: request(json("op", "services", "peer", id), data -> {
+                        case 4: request(json("op", "peer_services", "peer", id), data -> {
                             new AlertDialog.Builder(this).setTitle("Peer services").setMessage(data.toString()).setPositiveButton("OK", null).show(); refresh();
                         }); break;
                         case 5: {
                             EditText name = field("Peer name", peer.optString("name"));
                             new AlertDialog.Builder(this).setTitle("Rename peer").setView(name).setNegativeButton("Cancel", null)
-                                    .setPositiveButton("Save", (x,w) -> run(json("op", "rename", "peer", id, "name", name.getText().toString().trim()))).show(); break;
+                                    .setPositiveButton("Save", (x,w) -> run(json("op", "peer_rename", "peer", id, "name", name.getText().toString().trim()))).show(); break;
                         }
                         case 6: policyDialog(peer); break;
-                        case 7: run(json("op", "disconnect", "peer", id)); break;
+                        case 7: run(json("op", "peer_disconnect", "peer", id)); break;
                         case 8: new AlertDialog.Builder(this).setTitle("Revoke trust?").setMessage(id + "\nAll sessions with this peer will close.")
-                                .setNegativeButton("Cancel", null).setPositiveButton("Revoke", (x,w) -> run(json("op", "revoke", "peer", id))).show(); break;
+                                .setNegativeButton("Cancel", null).setPositiveButton("Revoke", (x,w) -> run(json("op", "peer_revoke", "peer", id))).show(); break;
                         default: break;
                     }
                 }).show());
@@ -190,7 +190,7 @@ public final class MainActivity extends Activity {
             try {
                 int number = Integer.parseInt(port.getText().toString());
                 if (number < 1 || number > 65535) throw new IllegalArgumentException("Port must be 1–65535");
-                JSONObject command = json("op", kind == 0 ? "forward" : kind == 1 ? "reverse" : "socks", "peer", peer);
+                JSONObject command = json("op", kind == 0 ? "forward_start" : kind == 1 ? "reverse_start" : "socks_start", "peer", peer);
                 if (kind == 1) { command.put("port", number); command.put("target", destination.getText().toString().trim()); }
                 else {
                     command.put("listen", (kind == 0 && lan.isChecked() ? "0.0.0.0:" : "127.0.0.1:") + number);
@@ -207,7 +207,7 @@ public final class MainActivity extends Activity {
                 .setMessage("Advanced: restricted=true enables grants. Saving closes existing sessions. VPN serving requires Linux.")
                 .setView(policy).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create();
         dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            try { request(json("op", "policy", "peer", peer.getString("id"), "policy", new JSONObject(policy.getText().toString())), data -> { dialog.dismiss(); refresh(); }); }
+            try { request(json("op", "peer_policy", "peer", peer.getString("id"), "policy", new JSONObject(policy.getText().toString())), data -> { dialog.dismiss(); refresh(); }); }
             catch (Exception e) { policy.setError(e.getMessage()); }
         })); dialog.show();
     }
@@ -220,7 +220,7 @@ public final class MainActivity extends Activity {
                     .setMessage("Only accept invitations from a device you trust. Paired peers can access TCP destinations on this device unless you restrict their policy. Confirm this request on the other device.")
                     .setNegativeButton("Cancel", null).setPositiveButton("Pair", (d,w) -> {
                         state.setText("Waiting for approval on the other device…");
-                        run(json("op", "pair", "uri", uri, "device", "Android"));
+                        run(json("op", "pair_start", "uri", uri, "device", "Android"));
                     }).show();
         } catch (Exception e) { error(e.getMessage()); }
     }
@@ -232,7 +232,7 @@ public final class MainActivity extends Activity {
         content.addView(image, new LinearLayout.LayoutParams(-1, dp(280)));
         text(content, "Expires in five minutes. After scanning, tap Review requests to approve the requesting identity.");
         NetworkService owner = service;
-        Runnable cancel = () -> owner.request(json("op", "cancel_invite", "id", invitation.optString("id")), (data, message) -> { });
+        Runnable cancel = () -> owner.request(json("op", "invite_cancel", "id", invitation.optString("id")), (data, message) -> { });
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Pair another device").setView(content)
                 .setPositiveButton("Review requests", (d,w) -> refresh())
                 .setNegativeButton("Cancel invitation", (d,w) -> cancel.run()).create();

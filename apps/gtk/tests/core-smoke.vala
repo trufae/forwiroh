@@ -17,7 +17,7 @@ async void smoke_echo (SocketConnection connection) {
 }
 async Json.Node wait_pending (Core core) throws Error {
     for (int i = 0; i < 750; i++) {
-        var result = yield core.request (make_command ("pending"));
+        var result = yield core.request (make_command ("peer_pending"));
         if (result.get_array ().get_length () > 0) return result.get_array ().get_element (0).copy ();
         yield smoke_pause ();
     }
@@ -45,26 +45,26 @@ async void smoke () throws Error {
         var duplicate = new Core (home_path);
         try { yield duplicate.open (); throw new CoreError.FAILED ("State lock was not enforced"); }
         catch (Error e) { assert (e.message.contains ("already in use")); }
-        var invitation = yield home.request (make_command ("invite"));
+        var invitation = yield home.request (make_command ("invite_create"));
         string uri = text (invitation.get_object (), "uri");
         var qr = unpack (take_string (Native.qr_code (uri))).get_object ();
         int width = (int) qr.get_int_member ("width");
         assert (width > 20 && array (qr, "pixels").get_length () == width * width);
-        var cmd = make_command ("pair"); cmd.get_object ().set_string_member ("uri", uri); cmd.get_object ().set_string_member ("device", "GTK test");
+        var cmd = make_command ("pair_start"); cmd.get_object ().set_string_member ("uri", uri); cmd.get_object ().set_string_member ("device", "GTK test");
         bool paired = false; string? pair_error = null;
         phone.request.begin (cmd, (obj, res) => {
             try { phone.request.end (res); } catch (Error e) { pair_error = e.message; }
             paired = true;
         });
         var request = yield wait_pending (home);
-        cmd = make_command ("approve"); cmd.get_object ().set_string_member ("id", text (request.get_object (), "id")); cmd.get_object ().set_boolean_member ("accept", true);
+        cmd = make_command ("peer_approve"); cmd.get_object ().set_string_member ("id", text (request.get_object (), "id")); cmd.get_object ().set_boolean_member ("accept", true);
         yield home.request (cmd);
         while (!paired) yield smoke_pause ();
         assert (pair_error == null);
         var service = new SocketService ();
         uint16 port = service.add_any_inet_port (null);
         service.incoming.connect ((connection, obj) => { smoke_echo.begin (connection); return true; }); service.start ();
-        cmd = make_command ("forward"); cmd.get_object ().set_string_member ("peer", home_id); cmd.get_object ().set_string_member ("listen", "127.0.0.1:0"); cmd.get_object ().set_string_member ("service", "127.0.0.1:%u".printf (port));
+        cmd = make_command ("forward_start"); cmd.get_object ().set_string_member ("peer", home_id); cmd.get_object ().set_string_member ("listen", "127.0.0.1:0"); cmd.get_object ().set_string_member ("service", "127.0.0.1:%u".printf (port));
         var tunnel = yield phone.request (cmd);
         string tunnel_id = text (tunnel.get_object (), "id");
         var snapshot = yield phone.request (make_command ("status"));
@@ -79,12 +79,12 @@ async void smoke () throws Error {
         var line = yield received.read_line_async ();
         assert (line == "GTK async bridge roundtrip");
         yield socket.close_async ();
-        cmd = make_command ("stop"); cmd.get_object ().set_string_member ("id", tunnel_id); yield phone.request (cmd);
+        cmd = make_command ("forward_stop"); cmd.get_object ().set_string_member ("id", tunnel_id); yield phone.request (cmd);
         service.stop (); service.close ();
-        cmd = make_command ("revoke"); cmd.get_object ().set_string_member ("peer", phone_id); yield home.request (cmd);
-        cmd = make_command ("revoke"); cmd.get_object ().set_string_member ("peer", home_id); yield phone.request (cmd);
-        invitation = yield home.request (make_command ("invite"));
-        cmd = make_command ("pair"); cmd.get_object ().set_string_member ("uri", text (invitation.get_object (), "uri")); cmd.get_object ().set_string_member ("device", "GTK test");
+        cmd = make_command ("peer_revoke"); cmd.get_object ().set_string_member ("peer", phone_id); yield home.request (cmd);
+        cmd = make_command ("peer_revoke"); cmd.get_object ().set_string_member ("peer", home_id); yield phone.request (cmd);
+        invitation = yield home.request (make_command ("invite_create"));
+        cmd = make_command ("pair_start"); cmd.get_object ().set_string_member ("uri", text (invitation.get_object (), "uri")); cmd.get_object ().set_string_member ("device", "GTK test");
         paired = false;
         phone.request.begin (cmd, (obj, res) => { try { phone.request.end (res); } catch (Error e) { pair_error = e.message; } paired = true; });
         yield wait_pending (home);

@@ -154,23 +154,21 @@ pub unsafe extern "C" fn forwiroh_command(
         let input: Value = serde_json::from_str(unsafe { text(input)? })?;
         h.runtime.block_on(async {
             ensure!(!h.node.cancel.is_cancelled(),"core stopped");
-            if input["op"] == "vpn_start" {
-                let peer = input["peer"].as_str().context("missing peer")?;
-                let routes = serde_json::from_value(input["routes"].clone())?;
+            let (_op, command) = Command::parse(input, |id| h.node.tunnel_kind(id))?;
+            if let Command::VpnStart { peer, routes, .. } = command {
                 {
                     let mut readers = h.packets.lock().unwrap();
                     readers.retain(|_, reader| reader.try_lock().map_or(true, |rx| !rx.is_closed()));
                     ensure!(readers.len() < 8, "packet reader limit reached");
                 }
                 let VpnLink { id,local_ip,remote_ip,routes,packets } = tokio::select! {
-                    result = h.node.start_vpn_with_transport(peer,routes,cfg!(target_os = "ios")) => result?,
+                    result = h.node.start_vpn_with_transport(&peer,routes,cfg!(target_os = "ios")) => result?,
                     _ = h.node.cancel.cancelled() => anyhow::bail!("core stopped"),
                 };
                 h.packets.lock().unwrap().insert(id.clone(),Arc::new(AsyncMutex::new(packets)));
                 return Ok(json!({"id":id,"local_ip":local_ip,"remote_ip":remote_ip,"local_ipv6":crate::vpn::ipv6(local_ip),"remote_ipv6":crate::vpn::ipv6(remote_ip),"forward_ip":crate::vpn::FORWARD_IP,"routes":routes,"mtu":crate::vpn::MTU}));
             }
-            if input["op"] == "stop_vpn" && let Some(id)=input["id"].as_str() { h.packets.lock().unwrap().remove(id); }
-            let command: Command = serde_json::from_value(input)?;
+            if let Command::VpnStop { id } = &command { h.packets.lock().unwrap().remove(id); }
             tokio::select! { r = h.node.command(command) => r, _ = h.node.cancel.cancelled() => anyhow::bail!("core stopped") }
         })
     })())

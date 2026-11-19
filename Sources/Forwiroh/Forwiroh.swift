@@ -106,7 +106,7 @@ public final class Forwiroh: Sendable {
     }
 
     public func status() async throws -> Status { try await request("status").decode(Status.self) }
-    public func invite() async throws -> Invitation { try await request("invite").decode(Invitation.self) }
+    public func invite() async throws -> Invitation { try await request("invite_create").decode(Invitation.self) }
     /// Permissions applied atomically when new peers pair in either direction.
     /// Set before inviting or pairing. Existing peers keep their saved policy.
     /// Requires core 0.1.1 or later; this setting lasts until close().
@@ -115,52 +115,58 @@ public final class Forwiroh: Sendable {
         _ = try await request("pairing_policy", ["policy": value])
     }
     public func pendingPairings() async throws -> [PairingRequest] {
-        try await request("pending").decode([PairingRequest].self)
+        try await request("peer_pending").decode([PairingRequest].self)
     }
-    public func cancelInvitation(id: String) async throws { _ = try await request("cancel_invite", ["id": .string(id)]) }
+    public func cancelInvitation(id: String) async throws { _ = try await request("invite_cancel", ["id": .string(id)]) }
     @discardableResult
     public func pair(invitation: String, device: String) async throws -> String {
-        try await identifier("pair", ["uri": .string(invitation), "device": .string(device)])
+        try await identifier("pair_start", ["uri": .string(invitation), "device": .string(device)])
     }
-    public func cancelPair() async throws { _ = try await request("cancel_pair") }
+    public func cancelPair() async throws { _ = try await request("pair_cancel") }
     public func approve(id: String, accept: Bool = true) async throws {
-        _ = try await request("approve", ["id": .string(id), "accept": .bool(accept)])
+        _ = try await request("peer_approve", ["id": .string(id), "accept": .bool(accept)])
     }
     public func rename(peer: String, name: String) async throws {
-        _ = try await request("rename", ["peer": .string(peer), "name": .string(name)])
+        _ = try await request("peer_rename", ["peer": .string(peer), "name": .string(name)])
     }
-    public func revoke(peer: String) async throws { _ = try await request("revoke", ["peer": .string(peer)]) }
-    public func disconnect(peer: String) async throws { _ = try await request("disconnect", ["peer": .string(peer)]) }
-    public func services(peer: String) async throws -> JSONValue { try await request("services", ["peer": .string(peer)]) }
+    public func revoke(peer: String) async throws { _ = try await request("peer_revoke", ["peer": .string(peer)]) }
+    public func disconnect(peer: String) async throws { _ = try await request("peer_disconnect", ["peer": .string(peer)]) }
+    public func services(peer: String) async throws -> JSONValue { try await request("peer_services", ["peer": .string(peer)]) }
     public func setPolicy(peer: String, policy: PeerPolicy) async throws {
         let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(policy))
-        _ = try await request("policy", ["peer": .string(peer), "policy": value])
+        _ = try await request("peer_policy", ["peer": .string(peer), "policy": value])
     }
     public func allow(peer: String, service: String, destination: String) async throws {
-        _ = try await request("allow", ["peer": .string(peer), "service": .string(service), "destination": .string(destination)])
+        _ = try await request("peer_allow", ["peer": .string(peer), "service": .string(service), "destination": .string(destination)])
     }
 
     /// Listen is a numeric IP:port. Service is a name or destination IP:port on the peer.
     @discardableResult
     public func forward(peer: String, listen: String = "127.0.0.1:0", service: String) async throws -> String {
-        try await identifier("forward", ["peer": .string(peer), "listen": .string(listen), "service": .string(service)])
+        try await identifier("forward_start", ["peer": .string(peer), "listen": .string(listen), "service": .string(service)])
     }
     @discardableResult
     public func reverse(peer: String, port: UInt16, target: String) async throws -> String {
-        try await identifier("reverse", ["peer": .string(peer), "port": .integer(Int64(port)), "target": .string(target)])
+        try await identifier("reverse_start", ["peer": .string(peer), "port": .integer(Int64(port)), "target": .string(target)])
     }
     @discardableResult
     public func socks(peer: String, listen: String = "127.0.0.1:1080") async throws -> String {
-        try await identifier("socks", ["peer": .string(peer), "listen": .string(listen)])
+        try await identifier("socks_start", ["peer": .string(peer), "listen": .string(listen)])
     }
-    public func stopTunnel(id: String) async throws { _ = try await request("stop", ["id": .string(id)]) }
+    /// The command API stops per kind; look the kind up rather than guess.
+    public func stopTunnel(id: String) async throws {
+        guard let kind = try await status().tunnels.first(where: { $0.id == id })?.kind else {
+            throw ForwirohError("Unknown tunnel")
+        }
+        _ = try await request("\(kind)_stop", ["id": .string(id)])
+    }
     public func networkChanged() async throws { _ = try await request("network_change") }
 
     /// Starts packet transport; the host app owns its NetworkExtension/VpnService.
     public func startVPN(peer: String, routes: [String]) async throws -> VPNSession {
         try await request("vpn_start", ["peer": .string(peer), "routes": .array(routes.map(JSONValue.string))]).decode(VPNSession.self)
     }
-    public func stopVPN(id: String) async throws { _ = try await request("stop_vpn", ["id": .string(id)]) }
+    public func stopVPN(id: String) async throws { _ = try await request("vpn_stop", ["id": .string(id)]) }
     public func vpnStats(id: String) async throws -> JSONValue { try await request("vpn_stats", ["id": .string(id)]) }
     public func sendPacket(session: String, data: Data) async throws {
         try validateCString(session)
