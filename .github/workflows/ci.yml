@@ -86,7 +86,7 @@ jobs:
         with:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: |
           rustup toolchain install --profile minimal --no-self-update
           rustup target add aarch64-linux-android x86_64-linux-android
