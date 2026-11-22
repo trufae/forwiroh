@@ -28,6 +28,11 @@ pub struct ApiInfo {
     pub backends: Vec<String>,
     pub features: Vec<String>,
     pub max_packet_size: usize,
+    #[serde(default = "legacy_policy_schema")]
+    pub policy_schema_version: u32,
+}
+fn legacy_policy_schema() -> u32 {
+    1
 }
 impl ApiInfo {
     pub fn supports(&self, command: &str) -> bool {
@@ -111,6 +116,29 @@ impl Forwiroh {
     pub async fn api_info(&self) -> Result<ApiInfo> {
         let value = self.command(json!({"op":"api_info"})).await?;
         serde_json::from_value(value).map_err(|e| public_error(e.into()))
+    }
+    pub async fn status(&self) -> Result<crate::Status> {
+        serde_json::from_value(self.command(json!({"op":"status"})).await?)
+            .map_err(|e| public_error(e.into()))
+    }
+    pub async fn invite_create(&self) -> Result<crate::Invitation> {
+        serde_json::from_value(self.command(json!({"op":"invite_create"})).await?)
+            .map_err(|e| public_error(e.into()))
+    }
+    pub async fn policy(&self, peer: &str) -> Result<crate::PolicySnapshot> {
+        serde_json::from_value(
+            self.command(json!({"op":"peer_policy_get","peer":peer}))
+                .await?,
+        )
+        .map_err(|e| public_error(e.into()))
+    }
+    pub async fn policy_update(
+        &self,
+        peer: &str,
+        revision: &str,
+        patch: Value,
+    ) -> Result<crate::PolicySnapshot> {
+        serde_json::from_value(self.command(json!({"op":"peer_policy_update","peer":peer,"expected_revision":revision,"patch":patch})).await?).map_err(|e| public_error(e.into()))
     }
     pub(crate) fn ensure_running(&self) -> anyhow::Result<()> {
         anyhow::ensure!(

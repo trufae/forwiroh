@@ -9,6 +9,7 @@ with tempfile.TemporaryDirectory(prefix='forwiroh-swift-') as temporary:
     package = Path(temporary)
     shutil.copytree(root / 'Sources/Forwiroh', package / 'Sources/Forwiroh')
     shutil.copytree(root / 'Tests/ForwirohTests', package / 'Tests/ForwirohTests')
+    shutil.copytree(root / 'Tests/Fixtures', package / 'Tests/Fixtures')
     (package / 'CForwiroh').mkdir()
     shutil.copy2(root / 'crates/forwiroh/include/forwiroh.h', package / 'CForwiroh/forwiroh.h')
     (package / 'CForwiroh/module.modulemap').write_text('module CForwiroh { header "forwiroh.h" link "forwiroh" export * }\n')

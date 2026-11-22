@@ -62,12 +62,14 @@ public struct APIInfo: Decodable, Sendable {
     public let backends: [String]
     public let features: [String]
     public let maxPacketSize: Int
+    public let policySchemaVersion: UInt32?
     public func supports(_ command: String) -> Bool {
         commands.contains(command) || aliases[command] != nil || (command == "stop" && features.contains("legacy_stop"))
     }
     enum CodingKeys: String, CodingKey {
         case version, commands, aliases, backends, features
         case controlAPIVersion = "control_api_version", cABIVersion = "c_abi_version", maxPacketSize = "max_packet_size"
+        case policySchemaVersion = "policy_schema_version"
     }
 }
 
@@ -86,6 +88,15 @@ public struct Peer: Decodable, Sendable, Identifiable {
     public let connected: Bool
     public let path: String?
     public let policy: PeerPolicy
+    public let policyRevision: String?
+    enum CodingKeys: String, CodingKey { case id, name, device, connected, path, policy; case policyRevision = "policy_revision" }
+}
+
+public struct PolicySnapshot: Decodable, Sendable {
+    public let policy: PeerPolicy
+    public let revision: String
+    public let policySchemaVersion: UInt32
+    enum CodingKeys: String, CodingKey { case policy, revision; case policySchemaVersion = "policy_schema_version" }
 }
 
 public struct Tunnel: Decodable, Sendable, Identifiable {
@@ -120,6 +131,7 @@ public struct PeerPolicy: Codable, Sendable, Equatable {
     public var socksPorts: [UInt16]
     public var reversePorts: [UInt16]
     public var vpn: VPNPolicy?
+    private var additionalFields: [String: JSONValue] = [:]
 
     public init(restricted: Bool = false, services: [String: String] = [:],
                 socksNetworks: [String] = [], socksPorts: [UInt16] = [],
@@ -135,6 +147,26 @@ public struct PeerPolicy: Codable, Sendable, Equatable {
         case restricted, services, vpn
         case socksNetworks = "socks_networks", socksPorts = "socks_ports", reversePorts = "reverse_ports"
     }
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        restricted = try fields.decodeIfPresent(Bool.self, forKey: .restricted) ?? false
+        services = try fields.decodeIfPresent([String: String].self, forKey: .services) ?? [:]
+        socksNetworks = try fields.decodeIfPresent([String].self, forKey: .socksNetworks) ?? []
+        socksPorts = try fields.decodeIfPresent([UInt16].self, forKey: .socksPorts) ?? []
+        reversePorts = try fields.decodeIfPresent([UInt16].self, forKey: .reversePorts) ?? []
+        vpn = try fields.decodeIfPresent(VPNPolicy.self, forKey: .vpn)
+        additionalFields = try [String: JSONValue](from: decoder).filter { CodingKeys(rawValue: $0.key) == nil }
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var fields = additionalFields
+        fields["restricted"] = .bool(restricted)
+        fields["services"] = .object(services.mapValues(JSONValue.string))
+        fields["socks_networks"] = .array(socksNetworks.map(JSONValue.string))
+        fields["socks_ports"] = .array(socksPorts.map { .integer(Int64($0)) })
+        fields["reverse_ports"] = .array(reversePorts.map { .integer(Int64($0)) })
+        if let vpn { fields["vpn"] = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(vpn)) }
+        try fields.encode(to: encoder)
+    }
 }
 
 public struct VPNPolicy: Codable, Sendable, Equatable {
@@ -142,12 +174,27 @@ public struct VPNPolicy: Codable, Sendable, Equatable {
     public var localIP: String
     public var peerIP: String
     public var tun: String
+    private var additionalFields: [String: JSONValue] = [:]
     public init(routes: [String], localIP: String, peerIP: String, tun: String = "") {
         self.routes = routes; self.localIP = localIP; self.peerIP = peerIP; self.tun = tun
     }
     enum CodingKeys: String, CodingKey {
         case routes, tun
         case localIP = "local_ip", peerIP = "peer_ip"
+    }
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        routes = try fields.decode([String].self, forKey: .routes)
+        localIP = try fields.decode(String.self, forKey: .localIP)
+        peerIP = try fields.decode(String.self, forKey: .peerIP)
+        tun = try fields.decodeIfPresent(String.self, forKey: .tun) ?? ""
+        additionalFields = try [String: JSONValue](from: decoder).filter { CodingKeys(rawValue: $0.key) == nil }
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var fields = additionalFields
+        fields["routes"] = .array(routes.map(JSONValue.string))
+        fields["local_ip"] = .string(localIP); fields["peer_ip"] = .string(peerIP); fields["tun"] = .string(tun)
+        try fields.encode(to: encoder)
     }
 }
 

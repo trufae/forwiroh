@@ -324,7 +324,7 @@ impl Node {
         let peers: Vec<Value> = store.state.peers.iter().map(|(id, p)| {
             let active = connections.get(id).and_then(|v| v.iter().rev().find(|c| c.close_reason().is_none()));
             json!({"id":id,"name":p.name,"device":p.device,"policy":p.policy,"connected":active.is_some(),
-                "path":active.map(connection_path)})
+                "path":active.map(connection_path),"policy_revision":crate::store::policy_revision(&p.policy).ok()})
         }).collect();
         let tunnels: Vec<Value> = self
             .tunnels
@@ -352,6 +352,7 @@ impl Node {
     /// Set permissions for newly paired peers before creating/redeeming invites.
     /// Existing peers retain their policy. This setting lasts until shutdown.
     pub fn set_pairing_policy(&self, policy: Policy) -> Result<()> {
+        crate::store::check_policy_schema(1)?;
         policy.validate()?;
         *self.pairing_policy.lock().unwrap() = policy;
         Ok(())
@@ -392,26 +393,81 @@ impl Node {
         );
         Ok(matches[0].clone())
     }
+    fn check_policy_update(store: &Store, id: &str, policy: &Policy) -> Result<()> {
+        ensure!(store.state.peers.contains_key(id), "peer removed");
+        if let Some(vpn) = &policy.vpn {
+            ensure!(
+                !store.state.peers.iter().any(|(other, p)| other != id
+                    && p.policy.vpn.as_ref().is_some_and(|v| !v.tun.is_empty()
+                        && !vpn.tun.is_empty()
+                        && (v.tun == vpn.tun || v.peer_ip == vpn.peer_ip))),
+                "VPN TUN and client IP must be unique per peer"
+            );
+        }
+        Ok(())
+    }
     pub fn set_policy(&self, peer: &str, policy: Policy) -> Result<()> {
+        crate::store::check_policy_schema(1)?;
         policy.validate()?;
         let id = self.peer(peer)?.addr.id.to_string();
         {
             let mut store = self.store.lock().unwrap();
-            ensure!(store.state.peers.contains_key(&id), "peer removed");
-            if let Some(vpn) = &policy.vpn {
-                ensure!(
-                    !store.state.peers.iter().any(|(other, p)| other != &id
-                        && p.policy.vpn.as_ref().is_some_and(|v| !v.tun.is_empty()
-                            && !vpn.tun.is_empty()
-                            && (v.tun == vpn.tun || v.peer_ip == vpn.peer_ip))),
-                    "VPN TUN and client IP must be unique per peer"
-                );
-            }
+            Self::check_policy_update(&store, &id, &policy)?;
             store.update(|s| s.peers.get_mut(&id).unwrap().policy = policy)?;
         }
         self.disconnect(&id);
         self.emit(json!({"event":"peers_changed"}));
         Ok(())
+    }
+    pub(crate) fn policy_snapshot(&self, peer: &str) -> Result<Value> {
+        let policy = self.peer(peer)?.policy;
+        Ok(
+            json!({"revision":crate::store::policy_revision(&policy)?,"policy_schema_version":crate::POLICY_SCHEMA_VERSION,"policy":policy}),
+        )
+    }
+    pub(crate) fn policy_update(&self, peer: &str, expected: &str, patch: Value) -> Result<Value> {
+        let id = self.peer(peer)?.addr.id.to_string();
+        let patch = patch.as_object().ok_or_else(|| {
+            CommandError::new(ErrorCode::InvalidCommand, "policy patch must be an object")
+        })?;
+        let result = {
+            let mut store = self.store.lock().unwrap();
+            let current = &store.state.peers.get(&id).context("peer removed")?.policy;
+            ensure!(
+                crate::store::policy_revision(current)? == expected,
+                CommandError::new(
+                    ErrorCode::PolicyConflict,
+                    "policy changed; refresh before updating"
+                )
+            );
+            let mut merged = serde_json::to_value(current)?;
+            for (key, value) in patch {
+                ensure!(
+                    merged.get(key).is_some(),
+                    CommandError::new(
+                        ErrorCode::InvalidCommand,
+                        format_args!("unknown policy field {key}")
+                    )
+                );
+                merged[key] = value.clone();
+            }
+            let policy: Policy = serde_json::from_value(merged)
+                .map_err(|e| ErrorCode::InvalidCommand.context(e.into()))?;
+            policy
+                .validate()
+                .map_err(|e| ErrorCode::InvalidCommand.context(e))?;
+            Self::check_policy_update(&store, &id, &policy)?;
+            let revision = crate::store::policy_revision(&policy)?;
+            let result = json!({"revision":revision,"policy_schema_version":crate::POLICY_SCHEMA_VERSION,"policy":policy});
+            if revision == expected {
+                return Ok(result);
+            }
+            store.update(|s| s.peers.get_mut(&id).unwrap().policy = policy)?;
+            result
+        };
+        self.disconnect(&id);
+        self.emit(json!({"event":"peers_changed"}));
+        Ok(result)
     }
     pub fn rename(&self, peer: &str, name: &str) -> Result<()> {
         pairing::validate_name(name)?;

@@ -137,6 +137,13 @@ public final class Forwiroh: Sendable {
         let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(policy))
         _ = try await request("peer_policy", ["peer": .string(peer), "policy": value])
     }
+    public func peerPolicy(peer: String) async throws -> PolicySnapshot {
+        try await request("peer_policy_get", ["peer": .string(peer)]).decode(PolicySnapshot.self)
+    }
+    @discardableResult
+    public func updatePolicy(peer: String, expectedRevision: String, patch: [String: JSONValue]) async throws -> PolicySnapshot {
+        try await request("peer_policy_update", ["peer": .string(peer), "expected_revision": .string(expectedRevision), "patch": .object(patch)]).decode(PolicySnapshot.self)
+    }
     public func allow(peer: String, service: String, destination: String) async throws {
         _ = try await request("peer_allow", ["peer": .string(peer), "service": .string(service), "destination": .string(destination)])
     }

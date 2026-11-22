@@ -13,6 +13,37 @@ use std::{
 
 const MAX_PEERS: usize = 64;
 
+pub(crate) fn check_policy_schema(version: u32) -> Result<()> {
+    anyhow::ensure!(
+        version == crate::POLICY_SCHEMA_VERSION,
+        crate::CommandError::new(
+            crate::ErrorCode::UnsupportedPolicySchema,
+            "policy schema is unsupported; use revision-checked policy updates"
+        )
+    );
+    Ok(())
+}
+pub(crate) fn policy_revision(policy: &Policy) -> Result<String> {
+    Ok(format!(
+        "p{}:{}",
+        crate::POLICY_SCHEMA_VERSION,
+        blake3::hash(&serde_json::to_vec(policy)?).to_hex()
+    ))
+}
+
+#[cfg(test)]
+mod policy_contract_tests {
+    #[test]
+    fn legacy_replacements_fail_closed_on_an_unknown_schema() {
+        super::check_policy_schema(crate::POLICY_SCHEMA_VERSION).unwrap();
+        let error = super::check_policy_schema(crate::POLICY_SCHEMA_VERSION + 1).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<crate::CommandError>().unwrap().code(),
+            crate::ErrorCode::UnsupportedPolicySchema
+        );
+    }
+}
+
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {

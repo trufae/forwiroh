@@ -10,6 +10,7 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
 anyhow.workspace = true
+blake3 = "1"
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

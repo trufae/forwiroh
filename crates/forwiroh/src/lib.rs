@@ -1,5 +1,10 @@
 mod api;
 mod ids;
+mod models;
+pub use models::{
+    Event, Invitation, PairingRequest, Peer, PeerPolicy, PolicySnapshot, Status, Tunnel, VpnPolicy,
+};
+pub const POLICY_SCHEMA_VERSION: u32 = 1;
 pub use api::{
     ApiInfo, C_ABI_VERSION, CONTROL_API_VERSION, Forwiroh, MAX_PACKET_SIZE, Options, Result,
 };

@@ -122,6 +122,10 @@ with tempfile.TemporaryDirectory() as tmp:
         subprocess.run([binary,'--state',str(roots[0]),'allow','phone','ssh','127.0.0.1:22'],check=True,stdout=subprocess.DEVNULL)
         services=json.loads(subprocess.check_output([binary,'--state',str(roots[1]),'connect','home']))
         assert services['services']==['ssh']
+        policy=rpc(roots[0],{'op':'peer_policy_get','peer':'phone'})
+        changed=rpc(roots[0],{'op':'peer_policy_update','peer':'phone','expected_revision':policy['revision'],'patch':{'reverse_ports':[8080]}})
+        assert changed['policy']['services']=={'ssh':'127.0.0.1:22'}
+        expect_error(roots[0],{'op':'peer_policy_update','peer':'phone','expected_revision':policy['revision'],'patch':{'restricted':True}},'policy changed','policy_conflict')
         for kind in ('forward','socks'):
             for stop in (kind+'_stop','stop'):
                 command={'op':'forward' if kind=='forward' else 'socks_start','peer':'home','listen':'127.0.0.1:0'}

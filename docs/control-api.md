@@ -1,10 +1,10 @@
-# Command errors
+# Control API compatibility
 
 ## Versions and capability discovery
 
 `{"op":"api_info"}` returns `control_api_version`, `c_abi_version`, the separate
 application `version`, accepted canonical `commands`, static `aliases`, available
-`backends`, `features` and `max_packet_size`. Rust uses `api_info()` and Swift uses
+`backends`, `features`, `policy_schema_version` and `max_packet_size`. Rust uses `api_info()` and Swift uses
 `apiInfo()`. C clients use the existing command entry point. C header version
 macros describe the headers, while this response describes the running core.
 
@@ -69,6 +69,8 @@ machine-readable `error_code`:
 | `invalid_packet` | The packet buffer or IP header is invalid. |
 | `buffer_too_small` | A receive buffer is smaller than the published capacity; no packet was consumed. |
 | `session_not_found` | The packet session no longer exists. |
+| `policy_conflict` | The policy changed since the supplied revision. Refresh before retrying. |
+| `unsupported_policy_schema` | A legacy full-policy replacement cannot represent the running policy schema. |
 | `operation_failed` | Another operation failure, including I/O, peer lookup, policy or pairing errors. |
 
 Codes come from typed errors rather than matching message text. Messages retain
@@ -104,3 +106,32 @@ The shared requests in
 `crates/forwiroh/tests/fixtures/control-errors.json` run through both the FFI
 regressions and the daemon smoke test. They cover canonical names, compatibility
 aliases, malformed JSON, field validation and unavailable backends.
+
+## Successful responses and policy evolution
+
+`Tests/Fixtures/control-success.json` is shared by Rust and Swift. It freezes
+legacy and current status, invitation, pending pairing, VPN and event shapes.
+Optional additions and unknown event names are accepted. Missing legacy policy
+lists default to empty and `restricted` defaults to false, preserving v1 behavior.
+Owned Rust and Swift policy models retain unknown fields, including nested VPN
+fields, when decoded and re-encoded. They do not grant those unknown permissions.
+
+New editors use `peer_policy_get` to obtain `policy`, an opaque `revision`, and
+`policy_schema_version`. Send `peer_policy_update` with `peer`, `expected_revision`
+and a `patch` object containing only the top-level fields being changed. Each
+named field is replaced in full; for example, `services` replaces the whole
+service map, while an omitted `vpn` is preserved and `vpn: null` removes it.
+Unknown request fields are rejected. Revision comparison and persistence occur
+under the same state lock. A stale revision returns `policy_conflict` without a
+write; fetch again and reconcile the intended change. An empty or unchanged patch
+does not disconnect the peer. Revisions are content tags, not counters: returning
+to the same policy can return the same tag. Do not parse them.
+
+The v1 `peer_policy` and `pairing_policy` operations retain schema-1 full
+replacement semantics. Policy fields and their defaults are frozen by fixtures.
+Adding a permission or changing its default requires an explicit policy-schema
+review and version change, including nested VPN permissions. The legacy setter
+guards reject a newer schema with `unsupported_policy_schema` until a deliberate
+adapter is provided. Future policy changes must also define safe behavior for
+old persisted state. Never silently reset newly introduced permissions through
+an older client's full-policy replacement.

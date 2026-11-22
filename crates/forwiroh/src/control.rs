@@ -17,6 +17,8 @@ pub enum ErrorCode {
     InvalidPacket,
     BufferTooSmall,
     SessionNotFound,
+    PolicyConflict,
+    UnsupportedPolicySchema,
     OperationFailed,
 }
 
@@ -106,6 +108,7 @@ pub(crate) fn api_info(packet_io: bool) -> crate::ApiInfo {
         .collect();
     crate::ApiInfo {
         control_api_version: crate::CONTROL_API_VERSION,
+        policy_schema_version: crate::POLICY_SCHEMA_VERSION,
         c_abi_version: crate::C_ABI_VERSION,
         version: crate::VERSION.into(),
         max_packet_size: crate::MAX_PACKET_SIZE,
@@ -125,6 +128,8 @@ pub(crate) fn api_info(packet_io: bool) -> crate::ApiInfo {
             "peer_disconnect",
             "peer_services",
             "peer_policy",
+            "peer_policy_get",
+            "peer_policy_update",
             "peer_allow",
             "forward",
             "forward_stop",
@@ -148,6 +153,7 @@ pub(crate) fn api_info(packet_io: bool) -> crate::ApiInfo {
             "vpn_exit_userspace".into(),
             "packet_errors".into(),
             "explicit_resource_ids".into(),
+            "policy_patch".into(),
         ],
     }
 }
@@ -207,6 +213,14 @@ pub enum Command {
     PeerPolicy {
         peer: String,
         policy: Policy,
+    },
+    PeerPolicyGet {
+        peer: String,
+    },
+    PeerPolicyUpdate {
+        peer: String,
+        expected_revision: String,
+        patch: Value,
     },
     PeerAllow {
         peer: String,
@@ -345,6 +359,12 @@ impl Node {
                 self.set_policy(&peer, policy)?;
                 Value::Null
             }
+            Command::PeerPolicyGet { peer } => self.policy_snapshot(&peer)?,
+            Command::PeerPolicyUpdate {
+                peer,
+                expected_revision,
+                patch,
+            } => self.policy_update(&peer, &expected_revision, patch)?,
             Command::PeerAllow {
                 peer,
                 service,
@@ -457,6 +477,11 @@ mod tests {
             (ErrorCode::InvalidPacket, "invalid_packet"),
             (ErrorCode::BufferTooSmall, "buffer_too_small"),
             (ErrorCode::SessionNotFound, "session_not_found"),
+            (ErrorCode::PolicyConflict, "policy_conflict"),
+            (
+                ErrorCode::UnsupportedPolicySchema,
+                "unsupported_policy_schema",
+            ),
             (ErrorCode::OperationFailed, "operation_failed"),
         ] {
             let error: anyhow::Error = CommandError::new(code, "unchanged text").into();

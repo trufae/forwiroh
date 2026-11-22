@@ -31,6 +31,14 @@ async fn supported_facade_opens_commands_and_closes_without_transport_types() {
     let status = core.command(json!({"op":"status"})).await.unwrap();
     assert_eq!(status["id"], core.id());
     assert_eq!(status["name"], "Rust consumer");
+    assert_eq!(core.status().await.unwrap().name, "Rust consumer");
+    assert!(
+        core.invite_create()
+            .await
+            .unwrap()
+            .uri
+            .starts_with("forwiroh:")
+    );
     let info = core.api_info().await.unwrap();
     assert_eq!(info.control_api_version, forwiroh::CONTROL_API_VERSION);
     assert_eq!(info.c_abi_version, forwiroh::C_ABI_VERSION);
@@ -160,6 +168,74 @@ async fn typed_tunnel_and_vpn_ids_address_distinct_resources() {
     client.vpn_stop(&session.session_id).await.unwrap();
     client.tunnel_stop(&forward).await.unwrap();
     client.tunnel_stop(&forward).await.unwrap();
+    let initial = server.policy(&client.id()).await.unwrap();
+    let updated = server
+        .policy_update(
+            &client.id(),
+            &initial.revision,
+            json!({"services":{"ssh":"127.0.0.1:22"}}),
+        )
+        .await
+        .unwrap();
+    assert_ne!(updated.revision, initial.revision);
+    assert_eq!(
+        server
+            .policy_update(&client.id(), &initial.revision, json!({"restricted":true}))
+            .await
+            .unwrap_err()
+            .code(),
+        ErrorCode::PolicyConflict
+    );
+    let restricted = server
+        .policy_update(&client.id(), &updated.revision, json!({"restricted":true}))
+        .await
+        .unwrap();
+    assert_eq!(restricted.policy.services["ssh"], "127.0.0.1:22");
+    assert_eq!(
+        server
+            .policy_update(
+                &client.id(),
+                &restricted.revision,
+                json!({"unknown_permission":true})
+            )
+            .await
+            .unwrap_err()
+            .code(),
+        ErrorCode::InvalidCommand
+    );
+    assert_eq!(
+        server.policy(&client.id()).await.unwrap().revision,
+        restricted.revision
+    );
+    let client_id = client.id();
+    let (first, second) = tokio::join!(
+        server.policy_update(
+            &client_id,
+            &restricted.revision,
+            json!({"socks_ports":[443]})
+        ),
+        server.policy_update(
+            &client_id,
+            &restricted.revision,
+            json!({"reverse_ports":[8080]})
+        ),
+    );
+    assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+    let loser = first.err().or_else(|| second.err()).unwrap();
+    assert_eq!(loser.code(), ErrorCode::PolicyConflict);
+    let final_policy = server.policy(&client.id()).await.unwrap();
+    assert_eq!(
+        server
+            .policy_update(&client.id(), &final_policy.revision, json!({}))
+            .await
+            .unwrap()
+            .revision,
+        final_policy.revision
+    );
+    assert_eq!(
+        server.status().await.unwrap().peers[0].policy.services["ssh"],
+        "127.0.0.1:22"
+    );
     client.close().await;
     server.close().await;
 }

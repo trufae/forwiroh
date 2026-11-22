@@ -13,6 +13,25 @@ import Testing
     #expect(throws: ForwirohError.self) { try Forwiroh.qrCode(String(repeating: "x", count: 5000)) }
 }
 
+@Test func sharedSuccessResponsesPreserveUnknownPolicyFields() throws {
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/control-success.json")
+    let values = try JSONDecoder().decode([String: JSONValue].self, from: Data(contentsOf: fixture))
+    for key in ["status_legacy", "status_current"] { #expect(try values[key]!.decode(Status.self).id == "node") }
+    #expect(try values["invitation"]!.decode(Invitation.self).id == "invitation")
+    #expect(try values["pending"]!.decode([PairingRequest].self).first?.id == "request")
+    for key in ["vpn_legacy", "vpn_current"] { #expect(try values[key]!.decode(VPNSession.self).sessionID.rawValue == "session") }
+    var policy = try values["policy_future"]!.decode(PeerPolicy.self)
+    policy.restricted = false
+    let encoded = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(policy))
+    #expect(encoded["future_permission"] == values["policy_future"]?["future_permission"])
+    #expect(encoded["vpn"]?["future_permission"] == .bool(false))
+    let legacy = try values["policy_legacy"]!.decode(PeerPolicy.self)
+    #expect(!legacy.restricted && legacy.socksPorts.isEmpty)
+    let payload = values["event"]!
+    let event = CoreEvent(name: payload["event"]!.string!, payload: payload)
+    #expect(event.name == "future_event" && event.payload["opaque"]?["values"] == .array([.integer(1), .bool(true)]))
+}
+
 @Test func responseShapesAndErrors() throws {
     #expect(try response(.object(["data": .null])) == .null)
     #expect(try response(.object(["data": .array([])])) == .array([]))
@@ -190,6 +209,13 @@ import Testing
         #expect(try await client.status().peers.first?.name == "home")
         try await client.setPolicy(peer: peer, policy: PeerPolicy(restricted: true))
         #expect(try await client.status().peers.first?.policy.restricted == true)
+        let initialPolicy = try await client.peerPolicy(peer: peer)
+        let updated = try await client.updatePolicy(peer: peer, expectedRevision: initialPolicy.revision, patch: ["services": .object(["ssh": .string("127.0.0.1:22")])])
+        #expect(updated.policy.restricted && updated.policy.services["ssh"] == "127.0.0.1:22")
+        do {
+            _ = try await client.updatePolicy(peer: peer, expectedRevision: initialPolicy.revision, patch: ["restricted": .bool(false)])
+            Issue.record("A stale revision must fail")
+        } catch let error as ForwirohError { #expect(error.code == "policy_conflict") }
         try await client.revoke(peer: peer)
         #expect(try await client.status().peers.isEmpty)
     } catch {

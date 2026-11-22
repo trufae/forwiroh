@@ -2,7 +2,7 @@
 
 Use the root `Forwiroh`, `Options`, `TransportMode`, `CommandError`, `ErrorCode`
 and `MAX_PACKET_SIZE` exports for new integrations. `Forwiroh` is opaque and
-returns owned JSON values, packet bytes and typed errors. No Iroh endpoint,
+returns owned response models, JSON values, packet bytes and typed errors. No Iroh endpoint,
 Tokio channel, cancellation token or internal state structure is exposed.
 Async calls require a Tokio runtime with I/O and time enabled.
 
@@ -20,6 +20,12 @@ let core = Forwiroh::open_with_options(path, "application",
 let status = core.command(json!({"op": "status"})).await?;
 core.close().await;
 ```
+
+Prefer `status()`, `invite_create()`, `policy()` and `policy_update()` for typed
+responses. Response models accept unknown fields; policy models preserve unknown
+permissions through serde round trips. Use revision-checked patches for policy
+edits and retry conflicts only after reading and reconciling the current policy.
+Public response structs are non-exhaustive so additive fields remain compatible.
 
 Options have private fields and builders. Extensible enums are non-exhaustive;
 external matches must include a fallback arm. This is an intentional source

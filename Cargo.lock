@@ -912,6 +912,7 @@ version = "0.1.6"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
+ "blake3",
  "bytes",
  "etherparse 0.21.0",
  "fast-socks5",

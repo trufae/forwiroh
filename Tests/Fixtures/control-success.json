@@ -1,0 +1,13 @@
+{
+  "status_legacy": {"id":"node","name":"device","version":"0.1.6","peers":[{"id":"peer","name":"home","device":"test","connected":false,"policy":{"services":{"ssh":"127.0.0.1:22"}}}],"tunnels":[]},
+  "status_current": {"id":"node","name":"device","version":"future","future_field":true,"peers":[],"tunnels":[{"id":"tunnel","tunnel_id":"tunnel","session_id":"session","peer":"peer","kind":"future_kind","detail":"opaque"}]},
+  "invitation": {"id":"invitation","uri":"forwiroh://pair?data=opaque","expires":2000000000,"future_field":true},
+  "pending": [{"id":"request","peer":"peer","name":"home","device":"test","future_field":true}],
+  "vpn_legacy": {"id":"session","local_ip":"10.250.0.2","remote_ip":"10.250.0.1","local_ipv6":"fd00:fa::2","remote_ipv6":"fd00:fa::1","forward_ip":"10.250.0.3","routes":["198.18.0.0/16"],"mtu":1280},
+  "vpn_current": {"id":"session","session_id":"session","tunnel_id":"tunnel","local_ip":"10.250.0.2","remote_ip":"10.250.0.1","local_ipv6":"fd00:fa::2","remote_ipv6":"fd00:fa::1","forward_ip":"10.250.0.3","routes":["198.18.0.0/16"],"mtu":1280,"future_field":true},
+  "policy_legacy": {"services":{"ssh":"127.0.0.1:22"}},
+  "policy_future": {"restricted":true,"services":{"ssh":"127.0.0.1:22"},"future_permission":{"allow":false},"vpn":{"routes":["198.18.0.0/16"],"local_ip":"10.250.0.1","peer_ip":"10.250.0.2","future_permission":false}},
+  "event": {"event":"future_event","opaque":{"values":[1,true]}},
+  "policy_schema_v1_fields": ["restricted","reverse_ports","services","socks_networks","socks_ports","vpn"],
+  "vpn_policy_schema_v1_fields": ["local_ip","peer_ip","routes","tun"]
+}
