@@ -14,7 +14,7 @@ blake3 = "1"
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-iroh = { version = "=1.4.1", default-features = false, features = ["tls-ring"] }
+iroh = { version = "=1.5.0", default-features = false, features = ["tls-ring"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 base64 = "0.23"
 getrandom = "0.4"
