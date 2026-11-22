@@ -1,8 +1,10 @@
 mod api;
+mod ids;
 pub use api::{
     ApiInfo, C_ABI_VERSION, CONTROL_API_VERSION, Forwiroh, MAX_PACKET_SIZE, Options, Result,
 };
 pub use control::{CommandError, ErrorCode};
+pub use ids::{TunnelId, VpnSession, VpnSessionId};
 pub use node::TransportMode;
 #[doc(hidden)]
 pub mod node;

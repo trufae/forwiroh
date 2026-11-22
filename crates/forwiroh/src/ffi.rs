@@ -217,7 +217,7 @@ pub unsafe extern "C" fn forwiroh_send_packet_ex(
             CommandError::new(ErrorCode::InvalidPacket, "invalid packet")
         );
         let packet = unsafe { std::slice::from_raw_parts(bytes, len) };
-        h.core.send_packet(unsafe { text(session)? }, packet)?;
+        h.core.send_packet_raw(unsafe { text(session)? }, packet)?;
         Ok(0)
     })();
     unsafe { packet_reply(result, error) }
@@ -256,7 +256,7 @@ pub unsafe extern "C" fn forwiroh_receive_packet_ex(
         );
         let packet = h
             .runtime
-            .block_on(h.core.receive_packet(unsafe { text(session)? }))?;
+            .block_on(h.core.receive_packet_raw(unsafe { text(session)? }))?;
         match packet {
             Some(packet) => {
                 unsafe {
@@ -491,6 +491,10 @@ mod tests {
                 assert!(reply["data"]["local_ip"].is_string());
                 let status = handle.core.node.snapshot();
                 let tunnel = status["tunnels"][0]["id"].as_str().unwrap();
+                assert_eq!(reply["data"]["session_id"], id);
+                assert_eq!(reply["data"]["tunnel_id"], tunnel);
+                assert_ne!(id, tunnel);
+                assert_eq!(status["tunnels"][0]["session_id"], id);
                 for wrong_id in [id, tunnel] {
                     for wrong_op in ["forward_stop", "reverse_stop", "socks_stop"] {
                         let error = command(&mut handle, json!({"op": wrong_op, "id": wrong_id}));

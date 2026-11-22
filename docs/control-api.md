@@ -27,6 +27,23 @@ The C ABI is v1: existing function signatures, ownership and return conventions
 remain fixed. New functions can be added. An incompatible ABI needs distinct
 symbols or a new library ABI; replacing an existing signature is not allowed.
 
+## Resource identifiers
+
+Tunnel creation keeps its legacy `id` and also returns `tunnel_id`. VPN creation
+keeps `id` as the packet session identifier and adds `session_id` plus the separate
+`tunnel_id`. Status tunnel entries keep `id` as the tunnel identifier, add its
+`tunnel_id` alias and include optional `session_id` for VPNs. These identities must
+not be conflated: packet I/O and VPN statistics address a session, while status
+and tunnel operations address a tunnel. IDs are opaque strings; do not parse them.
+
+Rust's supported facade returns `TunnelId`/`VpnSessionId` and typed `VpnSession`.
+Swift exposes `TunnelID`, `VPNSessionID`, `Tunnel.tunnelID`, `VPNSession.sessionID`
+and optional `VPNSession.tunnelID` (nil for older cores). Existing Swift string
+methods remain available; typed overloads prevent passing one kind to the other.
+The generic `stop` compatibility operation is resolved by the core and accepts
+either legacy ID form. Kind-specific stops still reject mismatches. The CLI and
+Swift generic helper use that v1 operation rather than guessing from a snapshot.
+
 ## Error responses
 
 The local control socket and C ABI use the same JSON response envelope. A success

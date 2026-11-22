@@ -147,6 +147,7 @@ pub(crate) fn api_info(packet_io: bool) -> crate::ApiInfo {
             "legacy_stop".into(),
             "vpn_exit_userspace".into(),
             "packet_errors".into(),
+            "explicit_resource_ids".into(),
         ],
     }
 }
@@ -362,13 +363,18 @@ impl Node {
                 peer,
                 listen,
                 service,
-            } => json!({"id":self.forward(&peer,listen,service).await?}),
+            } => {
+                let id = self.forward(&peer, listen, service).await?;
+                json!({"id":id,"tunnel_id":id})
+            }
             Command::TunnelFailure { id } => self.tunnel_failure(&id),
             Command::ReverseStart { peer, port, target } => {
-                json!({"id":self.reverse_start(&peer,port,target).await?})
+                let id = self.reverse_start(&peer, port, target).await?;
+                json!({"id":id,"tunnel_id":id})
             }
             Command::SocksStart { peer, listen } => {
-                json!({"id":self.socks_start(&peer,listen).await?})
+                let id = self.socks_start(&peer, listen).await?;
+                json!({"id":id,"tunnel_id":id})
             }
             Command::ForwardStop { id } => {
                 self.forward_stop(&id)?;
@@ -395,7 +401,11 @@ impl Node {
             Command::VpnStart { peer, routes, tun } => {
                 #[cfg(target_os = "linux")]
                 {
-                    json!({"id":self.vpn_tun(&peer,routes,&tun).await?})
+                    let id = self.vpn_tun(&peer, routes, &tun).await?;
+                    let tunnel = self
+                        .vpn_tunnel_id(&id)
+                        .context("VPN session stopped during setup")?;
+                    json!({"id":id,"session_id":id,"tunnel_id":tunnel})
                 }
                 #[cfg(not(target_os = "linux"))]
                 {

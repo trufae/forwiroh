@@ -318,6 +318,7 @@ impl Node {
         let _ = self.events.send(event);
     }
     pub fn snapshot(&self) -> Value {
+        let sessions = self.vpn_tunnel_sessions();
         let store = self.store.lock().unwrap();
         let connections = self.connections.lock().unwrap();
         let peers: Vec<Value> = store.state.peers.iter().map(|(id, p)| {
@@ -330,7 +331,7 @@ impl Node {
             .lock()
             .unwrap()
             .iter()
-            .map(|(id, t)| json!({"id":id,"peer":t.peer,"kind":t.kind,"detail":t.detail}))
+            .map(|(id, t)| json!({"id":id,"tunnel_id":id,"session_id":sessions.get(id),"peer":t.peer,"kind":t.kind,"detail":t.detail}))
             .collect();
         json!({"id":self.endpoint.id().to_string(),"name":store.state.name,"version":crate::VERSION,"peers":peers,"tunnels":tunnels})
     }

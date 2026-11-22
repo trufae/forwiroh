@@ -6,6 +6,12 @@ returns owned JSON values, packet bytes and typed errors. No Iroh endpoint,
 Tokio channel, cancellation token or internal state structure is exposed.
 Async calls require a Tokio runtime with I/O and time enabled.
 
+Tunnel creation helpers return `TunnelId`; packet VPN creation returns
+`VpnSession` with its `VpnSessionId` and optional `TunnelId`. Packet methods and
+`vpn_stop` require a session ID, while tunnel stops require a tunnel ID. Use
+`from_raw` only for an explicit conversion of persisted/legacy string values.
+Wire strings and existing low-level Node methods remain compatible.
+
 ```rust
 use forwiroh::{Forwiroh, Options, TransportMode};
 use serde_json::json;

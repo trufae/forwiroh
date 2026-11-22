@@ -144,6 +144,21 @@ impl PacketSession {
     }
 }
 impl Node {
+    pub(crate) fn vpn_tunnel_id(&self, session: &str) -> Option<String> {
+        self.vpn
+            .lock()
+            .unwrap()
+            .get(session)
+            .and_then(|s| s.tunnel.clone())
+    }
+    pub(crate) fn vpn_tunnel_sessions(&self) -> std::collections::HashMap<String, String> {
+        self.vpn
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(id, s)| s.tunnel.as_ref().map(|t| (t.clone(), id.clone())))
+            .collect()
+    }
     fn install_packets(
         &self,
         conn: Connection,

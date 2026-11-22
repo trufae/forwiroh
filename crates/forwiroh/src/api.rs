@@ -146,12 +146,18 @@ impl Forwiroh {
                 result = self.node.vpn_with_transport(peer, routes.clone(), cfg!(target_os = "ios")) => result?,
                 _ = self.node.cancel.cancelled() => anyhow::bail!(CommandError::new(ErrorCode::CoreStopped, "core stopped")),
             };
+            let tunnel_id = self.node.vpn_tunnel_id(&id).ok_or_else(|| {
+                CommandError::new(
+                    ErrorCode::SessionNotFound,
+                    "VPN session stopped during setup",
+                )
+            })?;
             self.packets
                 .lock()
                 .unwrap()
                 .insert(id.clone(), Arc::new(AsyncMutex::new(packets)));
             return Ok(
-                json!({"id":id,"local_ip":local_ip,"remote_ip":remote_ip,"local_ipv6":vpn::ipv6(local_ip),"remote_ipv6":vpn::ipv6(remote_ip),"forward_ip":vpn::FORWARD_IP,"routes":routes,"mtu":vpn::MTU}),
+                json!({"id":id,"session_id":id,"tunnel_id":tunnel_id,"local_ip":local_ip,"remote_ip":remote_ip,"local_ipv6":vpn::ipv6(local_ip),"remote_ipv6":vpn::ipv6(remote_ip),"forward_ip":vpn::FORWARD_IP,"routes":routes,"mtu":vpn::MTU}),
             );
         }
         let stopping = matches!(
@@ -183,7 +189,10 @@ impl Forwiroh {
             }
         }
     }
-    pub fn send_packet(&self, session: &str, packet: &[u8]) -> Result<()> {
+    pub fn send_packet(&self, session: &crate::VpnSessionId, packet: &[u8]) -> Result<()> {
+        self.send_packet_raw(session.as_str(), packet)
+    }
+    pub(crate) fn send_packet_raw(&self, session: &str, packet: &[u8]) -> Result<()> {
         (|| -> anyhow::Result<()> {
             self.ensure_running()?;
             anyhow::ensure!(
@@ -200,7 +209,10 @@ impl Forwiroh {
         .map_err(public_error)
     }
     /// One reader per session. None means EOF; an unknown session is an error.
-    pub async fn receive_packet(&self, session: &str) -> Result<Option<Vec<u8>>> {
+    pub async fn receive_packet(&self, session: &crate::VpnSessionId) -> Result<Option<Vec<u8>>> {
+        self.receive_packet_raw(session.as_str()).await
+    }
+    pub(crate) async fn receive_packet_raw(&self, session: &str) -> Result<Option<Vec<u8>>> {
         let reader = self
             .packets
             .lock()
@@ -220,5 +232,79 @@ impl Forwiroh {
     /// Idempotent; wakes blocked operations and waits for networking tasks.
     pub async fn close(&self) {
         self.node.shutdown().await;
+    }
+
+    async fn tunnel_identifier(&self, input: Value) -> Result<crate::TunnelId> {
+        let reply = self.command(input).await?;
+        reply["tunnel_id"]
+            .as_str()
+            .or_else(|| reply["id"].as_str())
+            .map(crate::TunnelId::from_raw)
+            .ok_or_else(|| CommandError::new(ErrorCode::OperationFailed, "missing tunnel ID"))
+    }
+    pub async fn forward(
+        &self,
+        peer: &str,
+        listen: std::net::SocketAddr,
+        service: &str,
+    ) -> Result<crate::TunnelId> {
+        self.tunnel_identifier(
+            json!({"op":"forward", "peer":peer,"listen":listen,"service":service}),
+        )
+        .await
+    }
+    pub async fn reverse_start(
+        &self,
+        peer: &str,
+        port: u16,
+        target: std::net::SocketAddr,
+    ) -> Result<crate::TunnelId> {
+        self.tunnel_identifier(
+            json!({"op":"reverse_start", "peer":peer,"port":port,"target":target}),
+        )
+        .await
+    }
+    pub async fn socks_start(
+        &self,
+        peer: &str,
+        listen: std::net::SocketAddr,
+    ) -> Result<crate::TunnelId> {
+        self.tunnel_identifier(json!({"op":"socks_start", "peer":peer,"listen":listen}))
+            .await
+    }
+    pub async fn tunnel_stop(&self, id: &crate::TunnelId) -> Result<()> {
+        self.command(json!({"op":"stop","id":id})).await.map(|_| ())
+    }
+    pub async fn forward_stop(&self, id: &crate::TunnelId) -> Result<()> {
+        self.command(json!({"op":"forward_stop","id":id}))
+            .await
+            .map(|_| ())
+    }
+    pub async fn reverse_stop(&self, id: &crate::TunnelId) -> Result<()> {
+        self.command(json!({"op":"reverse_stop","id":id}))
+            .await
+            .map(|_| ())
+    }
+    pub async fn socks_stop(&self, id: &crate::TunnelId) -> Result<()> {
+        self.command(json!({"op":"socks_stop","id":id}))
+            .await
+            .map(|_| ())
+    }
+    pub async fn vpn_start(&self, peer: &str, routes: &[String]) -> Result<crate::VpnSession> {
+        let reply = self
+            .command(json!({"op":"vpn_start","peer":peer,"routes":routes}))
+            .await?;
+        serde_json::from_value(reply).map_err(|e| public_error(e.into()))
+    }
+    /// VPN and tunnel identifiers cannot be interchanged accidentally.
+    /// ```compile_fail
+    /// # async fn example(core: &forwiroh::Forwiroh, tunnel: &forwiroh::TunnelId) {
+    /// core.vpn_stop(tunnel).await.unwrap();
+    /// # }
+    /// ```
+    pub async fn vpn_stop(&self, id: &crate::VpnSessionId) -> Result<()> {
+        self.command(json!({"op":"vpn_stop","id":id}))
+            .await
+            .map(|_| ())
     }
 }

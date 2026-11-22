@@ -90,9 +90,12 @@ public struct Peer: Decodable, Sendable, Identifiable {
 
 public struct Tunnel: Decodable, Sendable, Identifiable {
     public let id: String
+    public var tunnelID: TunnelID { TunnelID(rawValue: id) }
+    public let sessionID: VPNSessionID?
     public let peer: String
     public let kind: String
     public let detail: String
+    enum CodingKeys: String, CodingKey { case id, peer, kind, detail; case sessionID = "session_id" }
 }
 
 public struct Invitation: Decodable, Sendable, Identifiable {
@@ -149,7 +152,9 @@ public struct VPNPolicy: Codable, Sendable, Equatable {
 }
 
 public struct VPNSession: Decodable, Sendable, Identifiable {
-    public let id: String
+    public var id: String { sessionID.rawValue }
+    public let sessionID: VPNSessionID
+    public let tunnelID: TunnelID?
     public let localIP: String
     public let remoteIP: String
     public let localIPv6: String
@@ -159,8 +164,29 @@ public struct VPNSession: Decodable, Sendable, Identifiable {
     public let mtu: Int
     enum CodingKeys: String, CodingKey {
         case id, routes, mtu
+        case sessionID = "session_id", tunnelID = "tunnel_id"
         case localIP = "local_ip", remoteIP = "remote_ip"
         case localIPv6 = "local_ipv6", remoteIPv6 = "remote_ipv6", forwardIP = "forward_ip"
+    }
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try fields.decodeIfPresent(String.self, forKey: .id)
+        let explicit = try fields.decodeIfPresent(VPNSessionID.self, forKey: .sessionID)
+        guard let id = explicit?.rawValue ?? legacy else {
+            throw DecodingError.keyNotFound(CodingKeys.id, .init(codingPath: decoder.codingPath, debugDescription: "Missing VPN session ID"))
+        }
+        guard legacy == nil || legacy == id else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: fields, debugDescription: "Conflicting VPN session IDs")
+        }
+        sessionID = VPNSessionID(rawValue: id)
+        tunnelID = try fields.decodeIfPresent(TunnelID.self, forKey: .tunnelID)
+        localIP = try fields.decode(String.self, forKey: .localIP)
+        remoteIP = try fields.decode(String.self, forKey: .remoteIP)
+        localIPv6 = try fields.decode(String.self, forKey: .localIPv6)
+        remoteIPv6 = try fields.decode(String.self, forKey: .remoteIPv6)
+        forwardIP = try fields.decode(String.self, forKey: .forwardIP)
+        routes = try fields.decode([String].self, forKey: .routes)
+        mtu = try fields.decode(Int.self, forKey: .mtu)
     }
 }
 

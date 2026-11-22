@@ -371,25 +371,7 @@ async fn main() -> Result<()> {
         Cmd::Revoke { peer } => Command::PeerRevoke { peer },
         Cmd::Disconnect { peer } => Command::PeerDisconnect { peer },
         Cmd::Connect { peer } => Command::PeerServices { peer },
-        // The command API stops a tunnel by kind; the CLI keeps one verb and looks it up.
-        Cmd::Stop { id } => {
-            let status = rpc(&cli.state, &Command::Status).await?;
-            let Some(kind) = status["tunnels"]
-                .as_array()
-                .and_then(|tunnels| tunnels.iter().find(|t| t["id"] == id.as_str()))
-                .and_then(|tunnel| tunnel["kind"].as_str())
-            else {
-                println!("null");
-                return Ok(());
-            };
-            match kind {
-                "forward" => Command::ForwardStop { id },
-                "reverse" => Command::ReverseStop { id },
-                "socks" => Command::SocksStop { id },
-                "vpn" => Command::VpnStop { id },
-                other => anyhow::bail!("cannot stop a {other} tunnel"),
-            }
-        }
+        Cmd::Stop { id } => Command::LegacyStop { id },
         Cmd::StopVpn { id } => Command::VpnStop { id },
         Cmd::Forward { peer, rule } => {
             let (port, service) = rule

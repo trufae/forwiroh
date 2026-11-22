@@ -49,6 +49,23 @@ import Testing
     #expect(!FileManager.default.fileExists(atPath: path.path))
 }
 
+@Test func vpnIdentifiersDecodeBothLegacyAndExplicitFields() throws {
+    let legacy: JSONValue = .object([
+        "id": .string("session"), "local_ip": .string("10.250.0.2"), "remote_ip": .string("10.250.0.1"),
+        "local_ipv6": .string("fd00:fa::2"), "remote_ipv6": .string("fd00:fa::1"),
+        "forward_ip": .string("10.250.0.3"), "routes": .array([]), "mtu": .integer(1280)
+    ])
+    let old = try legacy.decode(VPNSession.self)
+    #expect(old.id == "session" && old.sessionID.rawValue == "session" && old.tunnelID == nil)
+    guard case .object(var fields) = legacy else { return }
+    fields["session_id"] = .string("session"); fields["tunnel_id"] = .string("tunnel")
+    let current = try JSONValue.object(fields).decode(VPNSession.self)
+    #expect(current.sessionID == VPNSessionID(rawValue: "session"))
+    #expect(current.tunnelID == TunnelID(rawValue: "tunnel"))
+    fields["session_id"] = .string("conflict")
+    #expect(throws: DecodingError.self) { try JSONValue.object(fields).decode(VPNSession.self) }
+}
+
 #if os(macOS) || os(Linux) || os(Windows)
 @Test(.timeLimit(.minutes(1))) func lifecyclePersistenceAndConcurrentShutdown() async throws {
     let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -164,6 +181,7 @@ import Testing
         }
         #expect(try await client.status().tunnels.contains(where: { $0.id == forward }))
         try await client.stopTunnel(id: forward)
+        try await client.stopTunnel(id: TunnelID(rawValue: forward))
         try await client.stopTunnel(id: socks)
         try await client.stopTunnel(id: forward)
         try await client.stopTunnel(id: socks)

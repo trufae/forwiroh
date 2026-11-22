@@ -154,13 +154,12 @@ public final class Forwiroh: Sendable {
     public func socks(peer: String, listen: String = "127.0.0.1:1080") async throws -> String {
         try await identifier("socks_start", ["peer": .string(peer), "listen": .string(listen)])
     }
-    /// Stop a tunnel by its status ID. Already-stopped tunnels succeed.
+    /// Legacy string form accepts status tunnel IDs and VPN session IDs.
+    /// Prefer the distinct TunnelID/VPNSessionID overloads in new integrations.
     public func stopTunnel(id: String) async throws {
-        guard let kind = try await status().tunnels.first(where: { $0.id == id })?.kind else {
-            return
-        }
-        _ = try await request("\(kind)_stop", ["id": .string(id)])
+        _ = try await request("stop", ["id": .string(id)])
     }
+    public func stopTunnel(id: TunnelID) async throws { try await stopTunnel(id: id.rawValue) }
     public func networkChanged() async throws { _ = try await request("network_change") }
 
     /// Starts packet transport; the host app owns its NetworkExtension/VpnService.
@@ -168,7 +167,11 @@ public final class Forwiroh: Sendable {
         try await request("vpn_start", ["peer": .string(peer), "routes": .array(routes.map(JSONValue.string))]).decode(VPNSession.self)
     }
     public func stopVPN(id: String) async throws { _ = try await request("vpn_stop", ["id": .string(id)]) }
+    public func stopVPN(id: VPNSessionID) async throws { try await stopVPN(id: id.rawValue) }
     public func vpnStats(id: String) async throws -> JSONValue { try await request("vpn_stats", ["id": .string(id)]) }
+    public func vpnStats(id: VPNSessionID) async throws -> JSONValue { try await vpnStats(id: id.rawValue) }
+    public func sendPacket(session: VPNSessionID, data: Data) async throws { try await sendPacket(session: session.rawValue, data: data) }
+    public func receivePacket(session: VPNSessionID) async throws -> Data? { try await receivePacket(session: session.rawValue) }
     public func sendPacket(session: String, data: Data) async throws {
         try validateCString(session)
         guard !data.isEmpty, data.count <= forwiroh_max_packet_size() else { throw ForwirohError("Invalid packet size", code: "invalid_packet") }
