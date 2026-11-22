@@ -109,7 +109,8 @@ pub enum Command {
     SocksStop {
         id: String,
     },
-    /// The FFI starts the packet plane here; `tun` selects the TUN backend elsewhere.
+    /// A nonempty `tun` selects the Linux TUN backend on every command transport.
+    /// Without a TUN, the FFI exposes packet I/O for the host's VPN provider.
     VpnStart {
         peer: String,
         routes: Vec<ipnet::IpNet>,

@@ -155,14 +155,14 @@ pub unsafe extern "C" fn forwiroh_command(
         h.runtime.block_on(async {
             ensure!(!h.node.cancel.is_cancelled(),"core stopped");
             let (_op, command) = Command::parse(input, |id| h.node.tunnel_kind(id))?;
-            if let Command::VpnStart { peer, routes, .. } = command {
+            if let Command::VpnStart { peer, routes, tun } = &command && tun.is_empty() {
                 {
                     let mut readers = h.packets.lock().unwrap();
                     readers.retain(|_, reader| reader.try_lock().map_or(true, |rx| !rx.is_closed()));
                     ensure!(readers.len() < 8, "packet reader limit reached");
                 }
                 let VpnLink { id,local_ip,remote_ip,routes,packets } = tokio::select! {
-                    result = h.node.vpn_with_transport(&peer,routes,cfg!(target_os = "ios")) => result?,
+                    result = h.node.vpn_with_transport(peer,routes.clone(),cfg!(target_os = "ios")) => result?,
                     _ = h.node.cancel.cancelled() => anyhow::bail!("core stopped"),
                 };
                 h.packets.lock().unwrap().insert(id.clone(),Arc::new(AsyncMutex::new(packets)));
@@ -281,6 +281,118 @@ pub unsafe extern "C" fn forwiroh_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn local_handle(path: &Path) -> Handle {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let node = runtime
+            .block_on(Node::open(
+                path,
+                "ffi",
+                None,
+                crate::TransportMode::LocalOnly,
+            ))
+            .unwrap();
+        let events = AsyncMutex::new(node.subscribe());
+        Handle {
+            runtime,
+            node,
+            events,
+            packets: Mutex::default(),
+        }
+    }
+
+    fn command(handle: &mut Handle, input: Value) -> Value {
+        let input = CString::new(input.to_string()).unwrap();
+        unsafe {
+            let raw = forwiroh_command(handle, input.as_ptr());
+            let reply = serde_json::from_str(CStr::from_ptr(raw).to_str().unwrap()).unwrap();
+            forwiroh_string_free(raw);
+            reply
+        }
+    }
+
+    #[test]
+    fn explicit_tun_uses_the_same_backend_as_node_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut handle = local_handle(dir.path());
+        let expected = handle
+            .runtime
+            .block_on(handle.node.command(Command::VpnStart {
+                peer: "missing".into(),
+                routes: vec!["198.18.0.0/16".parse().unwrap()],
+                tun: "invalid/name".into(),
+            }))
+            .unwrap_err()
+            .to_string();
+        for op in ["vpn_start", "vpn"] {
+            assert_eq!(
+                command(
+                    &mut handle,
+                    json!({
+                        "op": op, "peer": "missing", "routes": ["198.18.0.0/16"], "tun": "invalid/name"
+                    })
+                ),
+                json!({"error": expected})
+            );
+            assert!(handle.packets.lock().unwrap().is_empty());
+        }
+        handle.runtime.block_on(handle.node.shutdown());
+    }
+
+    #[test]
+    fn packet_vpn_without_a_tun_registers_a_reader() {
+        for op in ["vpn_start", "vpn"] {
+            for tun in [None, Some("")] {
+                let client_dir = tempfile::tempdir().unwrap();
+                let server_dir = tempfile::tempdir().unwrap();
+                let mut handle = local_handle(client_dir.path());
+                let server = handle
+                    .runtime
+                    .block_on(Node::open(
+                        server_dir.path(),
+                        "exit",
+                        None,
+                        crate::TransportMode::LocalOnly,
+                    ))
+                    .unwrap();
+                for (node, other) in [(&handle.node, &server), (&server, &handle.node)] {
+                    node.store
+                        .lock()
+                        .unwrap()
+                        .update(|state| {
+                            state.peers.insert(
+                                other.endpoint.id().to_string(),
+                                crate::store::Peer {
+                                    name: "other".into(),
+                                    device: "test".into(),
+                                    addr: other.endpoint.addr(),
+                                    policy: crate::store::Policy::default(),
+                                },
+                            );
+                        })
+                        .unwrap();
+                }
+                let mut input = json!({
+                    "op": op, "peer": server.endpoint.id().to_string(), "routes": ["198.18.0.0/16"]
+                });
+                if let Some(tun) = tun {
+                    input["tun"] = json!(tun);
+                }
+                let reply = command(&mut handle, input);
+                let id = reply["data"]["id"].as_str().expect("packet VPN starts");
+                assert!(handle.packets.lock().unwrap().contains_key(id));
+                assert_eq!(reply["data"]["mtu"], crate::vpn::MTU);
+                assert!(reply["data"]["local_ip"].is_string());
+                handle.runtime.block_on(handle.node.shutdown());
+                handle.runtime.block_on(server.shutdown());
+            }
+        }
+    }
+
     #[test]
     fn qr_matrix_and_invalid_ffi_inputs() {
         let input = CString::new("forwiroh QR test").unwrap();
