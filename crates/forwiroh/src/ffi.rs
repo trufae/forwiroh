@@ -3,23 +3,17 @@
 //! all callers. Never call these blocking functions on the UI thread.
 use crate::{
     Node,
-    control::{self, Command, CommandError, ErrorCode},
-    vpn::VpnLink,
+    control::{self, CommandError, ErrorCode},
 };
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
+#[cfg(target_os = "android")]
+use std::sync::Mutex;
 use std::{
-    collections::HashMap,
     ffi::{CStr, CString, c_char},
     path::Path,
-    sync::{Arc, Mutex},
 };
-use tokio::{
-    runtime::Runtime,
-    sync::{Mutex as AsyncMutex, broadcast, mpsc},
-};
-
-type PacketReader = Arc<AsyncMutex<mpsc::Receiver<Vec<u8>>>>;
+use tokio::runtime::Runtime;
 /// Returns a static, NUL-terminated version string. Do not free it.
 #[unsafe(no_mangle)]
 pub extern "C" fn forwiroh_version() -> *const c_char {
@@ -53,9 +47,7 @@ pub unsafe extern "C" fn forwiroh_qr_code(input: *const c_char) -> *mut c_char {
 
 pub struct Handle {
     runtime: Runtime,
-    node: Arc<Node>,
-    events: AsyncMutex<broadcast::Receiver<Value>>,
-    packets: Mutex<HashMap<String, PacketReader>>,
+    core: crate::Forwiroh,
 }
 
 fn open_handle(path: &str, name: &str, key: Option<[u8; 32]>) -> Result<Handle> {
@@ -69,12 +61,9 @@ fn open_handle(path: &str, name: &str, key: Option<[u8; 32]>) -> Result<Handle> 
         key,
         crate::TransportMode::Automatic,
     ))?;
-    let events = AsyncMutex::new(node.subscribe());
     Ok(Handle {
         runtime,
-        node,
-        events,
-        packets: Mutex::default(),
+        core: crate::Forwiroh::from_node(node),
     })
 }
 
@@ -156,30 +145,9 @@ pub unsafe extern "C" fn forwiroh_command(
             unsafe { text(input) }.map_err(|error| ErrorCode::InvalidCommand.context(error))?;
         let input: Value = serde_json::from_str(input)
             .map_err(|error| ErrorCode::InvalidCommand.context(error.into()))?;
-        h.runtime.block_on(async {
-            ensure!(!h.node.cancel.is_cancelled(),CommandError::new(ErrorCode::CoreStopped,"core stopped"));
-            let (_op, command) = Command::parse(input, |id| h.node.tunnel_kind(id))?;
-            if let Command::VpnStart { peer, routes, tun } = &command && tun.is_empty() {
-                {
-                    let mut readers = h.packets.lock().unwrap();
-                    readers.retain(|_, reader| reader.try_lock().map_or(true, |rx| !rx.is_closed()));
-                    ensure!(readers.len() < 8, "packet reader limit reached");
-                }
-                let VpnLink { id,local_ip,remote_ip,routes,packets } = tokio::select! {
-                    result = h.node.vpn_with_transport(peer,routes.clone(),cfg!(target_os = "ios")) => result?,
-                    _ = h.node.cancel.cancelled() => anyhow::bail!(CommandError::new(ErrorCode::CoreStopped,"core stopped")),
-                };
-                h.packets.lock().unwrap().insert(id.clone(),Arc::new(AsyncMutex::new(packets)));
-                return Ok(json!({"id":id,"local_ip":local_ip,"remote_ip":remote_ip,"local_ipv6":crate::vpn::ipv6(local_ip),"remote_ipv6":crate::vpn::ipv6(remote_ip),"forward_ip":crate::vpn::FORWARD_IP,"routes":routes,"mtu":crate::vpn::MTU}));
-            }
-            let stopping_vpn = matches!(command, Command::VpnStop { .. } | Command::LegacyStop { .. });
-            let result = tokio::select! { r = h.node.command(command) => r, _ = h.node.cancel.cancelled() => anyhow::bail!(CommandError::new(ErrorCode::CoreStopped,"core stopped")) }?;
-            if stopping_vpn {
-                let sessions = h.node.vpn.lock().unwrap();
-                h.packets.lock().unwrap().retain(|id, _| sessions.contains_key(id));
-            }
-            Ok(result)
-        })
+        h.runtime
+            .block_on(h.core.command(input))
+            .map_err(Into::into)
     })())
 }
 /// # Safety
@@ -189,13 +157,9 @@ pub unsafe extern "C" fn forwiroh_next_event(handle: *mut Handle) -> *mut c_char
     let Some(h) = (unsafe { handle.as_ref() }) else {
         return std::ptr::null_mut();
     };
-    h.runtime.block_on(async {
-        let mut events=h.events.lock().await;
-        tokio::select! {
-            _ = h.node.cancel.cancelled()=>std::ptr::null_mut(),
-            e = events.recv()=>match e { Ok(v)=>string(v),Err(broadcast::error::RecvError::Lagged(_))=>string(json!({"event":"resync"})),Err(_)=>std::ptr::null_mut() }
-        }
-    })
+    h.runtime
+        .block_on(h.core.next_event())
+        .map_or(std::ptr::null_mut(), string)
 }
 /// Maximum packet length and minimum receive buffer capacity, independent of MTU.
 #[unsafe(no_mangle)]
@@ -247,22 +211,13 @@ pub unsafe extern "C" fn forwiroh_send_packet_ex(
 ) -> i32 {
     let result = (|| -> Result<i32> {
         let h = unsafe { handle.as_ref() }.context("null handle")?;
-        ensure!(
-            !h.node.cancel.is_cancelled(),
-            CommandError::new(ErrorCode::CoreStopped, "core stopped")
-        );
+        h.core.ensure_running()?;
         ensure!(
             !bytes.is_null() && len > 0 && len <= crate::vpn::MAX_PACKET,
             CommandError::new(ErrorCode::InvalidPacket, "invalid packet")
         );
         let packet = unsafe { std::slice::from_raw_parts(bytes, len) };
-        crate::vpn::validate_packet(packet).map_err(|e| ErrorCode::InvalidPacket.context(e))?;
-        let id = unsafe { text(session)? };
-        ensure!(
-            h.node.vpn.lock().unwrap().contains_key(id),
-            CommandError::new(ErrorCode::SessionNotFound, "VPN session stopped")
-        );
-        h.node.send_packet(id, packet)?;
+        h.core.send_packet(unsafe { text(session)? }, packet)?;
         Ok(0)
     })();
     unsafe { packet_reply(result, error) }
@@ -299,26 +254,17 @@ pub unsafe extern "C" fn forwiroh_receive_packet_ex(
             !buffer.is_null() && capacity >= crate::vpn::MAX_PACKET,
             CommandError::new(ErrorCode::BufferTooSmall, "buffer too small")
         );
-        let id = unsafe { text(session)? };
-        let reader =
-            h.packets.lock().unwrap().get(id).cloned().ok_or_else(|| {
-                CommandError::new(ErrorCode::SessionNotFound, "unknown VPN session")
-            })?;
-        let packet = h.runtime.block_on(async {
-            let mut rx = reader.lock().await;
-            tokio::select! { _ = h.node.cancel.cancelled()=>None, p = rx.recv()=>p }
-        });
+        let packet = h
+            .runtime
+            .block_on(h.core.receive_packet(unsafe { text(session)? }))?;
         match packet {
-            Some(p) => {
+            Some(packet) => {
                 unsafe {
-                    std::ptr::copy_nonoverlapping(p.as_ptr(), buffer, p.len());
+                    std::ptr::copy_nonoverlapping(packet.as_ptr(), buffer, packet.len());
                 }
-                Ok(p.len() as i32)
+                Ok(packet.len() as i32)
             }
-            None => {
-                h.packets.lock().unwrap().remove(id);
-                Ok(0)
-            }
+            None => Ok(0),
         }
     })();
     unsafe { packet_reply(result, error) }
@@ -328,7 +274,7 @@ pub unsafe extern "C" fn forwiroh_receive_packet_ex(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn forwiroh_shutdown(handle: *mut Handle) {
     if let Some(h) = unsafe { handle.as_ref() } {
-        h.runtime.block_on(h.node.shutdown());
+        h.runtime.block_on(h.core.close());
     }
 }
 /// # Safety
@@ -352,6 +298,9 @@ pub unsafe extern "C" fn forwiroh_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::control::Command;
+    use std::sync::Arc;
+    use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
     fn local_handle(path: &Path) -> Handle {
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -367,12 +316,9 @@ mod tests {
                 crate::TransportMode::LocalOnly,
             ))
             .unwrap();
-        let events = AsyncMutex::new(node.subscribe());
         Handle {
             runtime,
-            node,
-            events,
-            packets: Mutex::default(),
+            core: crate::Forwiroh::from_node(node),
         }
     }
 
@@ -397,6 +343,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel(1);
         sender.try_send(vec![7; crate::vpn::MTU]).unwrap();
         handle
+            .core
             .packets
             .lock()
             .unwrap()
@@ -444,7 +391,7 @@ mod tests {
             );
             assert!(error.is_null());
         }
-        handle.runtime.block_on(handle.node.shutdown());
+        handle.runtime.block_on(handle.core.node.shutdown());
     }
 
     #[test]
@@ -469,14 +416,14 @@ mod tests {
             );
             assert!(reply.get("data").is_none());
         }
-        handle.runtime.block_on(handle.node.shutdown());
+        handle.runtime.block_on(handle.core.node.shutdown());
     }
 
     #[test]
     fn explicit_tun_uses_the_same_backend_as_node_commands() {
         let dir = tempfile::tempdir().unwrap();
         let mut handle = local_handle(dir.path());
-        let expected = control::response(handle.runtime.block_on(handle.node.command(
+        let expected = control::response(handle.runtime.block_on(handle.core.node.command(
             Command::VpnStart {
                 peer: "missing".into(),
                 routes: vec!["198.18.0.0/16".parse().unwrap()],
@@ -493,9 +440,9 @@ mod tests {
                 ),
                 expected
             );
-            assert!(handle.packets.lock().unwrap().is_empty());
+            assert!(handle.core.packets.lock().unwrap().is_empty());
         }
-        handle.runtime.block_on(handle.node.shutdown());
+        handle.runtime.block_on(handle.core.node.shutdown());
     }
 
     #[test]
@@ -514,7 +461,7 @@ mod tests {
                         crate::TransportMode::LocalOnly,
                     ))
                     .unwrap();
-                for (node, other) in [(&handle.node, &server), (&server, &handle.node)] {
+                for (node, other) in [(&handle.core.node, &server), (&server, &handle.core.node)] {
                     node.store
                         .lock()
                         .unwrap()
@@ -539,18 +486,18 @@ mod tests {
                 }
                 let reply = command(&mut handle, input);
                 let id = reply["data"]["id"].as_str().expect("packet VPN starts");
-                assert!(handle.packets.lock().unwrap().contains_key(id));
+                assert!(handle.core.packets.lock().unwrap().contains_key(id));
                 assert_eq!(reply["data"]["mtu"], crate::vpn::MTU);
                 assert!(reply["data"]["local_ip"].is_string());
-                let status = handle.node.snapshot();
+                let status = handle.core.node.snapshot();
                 let tunnel = status["tunnels"][0]["id"].as_str().unwrap();
                 for wrong_id in [id, tunnel] {
                     for wrong_op in ["forward_stop", "reverse_stop", "socks_stop"] {
                         let error = command(&mut handle, json!({"op": wrong_op, "id": wrong_id}));
                         assert_eq!(error["error_code"], "wrong_tunnel_kind");
                         assert!(error["error"].as_str().unwrap().contains("is vpn"));
-                        assert!(handle.packets.lock().unwrap().contains_key(id));
-                        assert!(handle.node.vpn_stats(id).is_object());
+                        assert!(handle.core.packets.lock().unwrap().contains_key(id));
+                        assert!(handle.core.node.vpn_stats(id).is_object());
                     }
                 }
                 // Exercise both accepted VPN IDs and the legacy generic stop.
@@ -560,10 +507,10 @@ mod tests {
                     command(&mut handle, json!({"op": stop_op, "id": stop_id})),
                     json!({"data": null})
                 );
-                assert!(handle.packets.lock().unwrap().is_empty());
-                assert!(handle.node.vpn_stats(id).is_null());
+                assert!(handle.core.packets.lock().unwrap().is_empty());
+                assert!(handle.core.node.vpn_stats(id).is_null());
                 assert!(
-                    handle.node.snapshot()["tunnels"]
+                    handle.core.node.snapshot()["tunnels"]
                         .as_array()
                         .unwrap()
                         .is_empty()
@@ -574,7 +521,7 @@ mod tests {
                         json!({"data": null})
                     );
                 }
-                handle.runtime.block_on(handle.node.shutdown());
+                handle.runtime.block_on(handle.core.node.shutdown());
                 handle.runtime.block_on(server.shutdown());
             }
         }
@@ -594,6 +541,7 @@ mod tests {
         for (kind, stop) in stops {
             for op in [format!("{kind}_stop"), "stop".into()] {
                 let (id, cancelled) = handle
+                    .core
                     .node
                     .add_tunnel("peer".into(), kind, "test".into())
                     .unwrap();
@@ -602,7 +550,7 @@ mod tests {
                         continue;
                     }
                     assert!(
-                        other_stop(&handle.node, &id)
+                        other_stop(&handle.core.node, &id)
                             .unwrap_err()
                             .to_string()
                             .contains(&format!("is {kind}"))
@@ -619,7 +567,7 @@ mod tests {
                             .contains(&format!("is {kind}"))
                     );
                     assert!(!cancelled.is_cancelled());
-                    assert_eq!(handle.node.tunnel_kind(&id).as_deref(), Some(kind));
+                    assert_eq!(handle.core.node.tunnel_kind(&id).as_deref(), Some(kind));
                 }
                 for _ in 0..2 {
                     assert_eq!(
@@ -628,10 +576,10 @@ mod tests {
                     );
                 }
                 assert!(cancelled.is_cancelled());
-                assert!(handle.node.tunnel_kind(&id).is_none());
-                stop(&handle.node, &id).unwrap();
+                assert!(handle.core.node.tunnel_kind(&id).is_none());
+                stop(&handle.core.node, &id).unwrap();
             }
-            stop(&handle.node, "missing").unwrap();
+            stop(&handle.core.node, "missing").unwrap();
             assert_eq!(
                 command(
                     &mut handle,
@@ -644,7 +592,7 @@ mod tests {
             command(&mut handle, json!({"op": "stop", "id": "missing"})),
             json!({"data": null})
         );
-        handle.runtime.block_on(handle.node.shutdown());
+        handle.runtime.block_on(handle.core.node.shutdown());
     }
 
     #[test]
@@ -690,12 +638,9 @@ mod tests {
                 crate::TransportMode::LocalOnly,
             ))
             .unwrap();
-        let events = AsyncMutex::new(node.subscribe());
         let handle = Box::into_raw(Box::new(Handle {
             runtime,
-            node,
-            events,
-            packets: Mutex::default(),
+            core: crate::Forwiroh::from_node(node),
         }));
         let command = CString::new(r#"{"op":"status"}"#).unwrap();
         unsafe {
@@ -716,7 +661,7 @@ mod tests {
             let h = &*handle;
             assert_eq!(
                 error,
-                control::response(h.runtime.block_on(h.node.command(Command::Status)))
+                control::response(h.runtime.block_on(h.core.node.command(Command::Status)))
             );
             assert!(
                 CStr::from_ptr(result)

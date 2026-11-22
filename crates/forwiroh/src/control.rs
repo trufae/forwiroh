@@ -105,6 +105,7 @@ pub fn canonical_op(op: &str) -> Option<&'static str> {
 /// Pairing is cancelled with `pair_cancel`; forwarding is stopped with `forward_stop`.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+#[non_exhaustive]
 pub enum Command {
     Status,
     NetworkChange,

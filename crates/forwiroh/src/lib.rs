@@ -1,9 +1,19 @@
+mod api;
+pub use api::{Forwiroh, MAX_PACKET_SIZE, Options, Result};
+pub use control::{CommandError, ErrorCode};
+pub use node::TransportMode;
+#[doc(hidden)]
 pub mod node;
+#[doc(hidden)]
 pub mod pairing;
+#[doc(hidden)]
 pub mod store;
+#[doc(hidden)]
 pub mod tcp;
+#[doc(hidden)]
 pub mod wire;
-pub use node::{Node, TransportMode};
+#[doc(hidden)]
+pub use node::Node;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Capabilities of the same provider selected by the Iroh N0 endpoint preset.
 pub fn crypto_info() -> serde_json::Value {
@@ -30,13 +40,18 @@ pub fn crypto_info() -> serde_json::Value {
         "key_exchanges": key_exchanges,
     })
 }
+#[doc(hidden)]
 pub mod control;
 mod exit;
+#[doc(hidden)]
 pub mod socks;
+#[doc(hidden)]
 pub mod vpn;
 #[cfg(test)]
 mod vpn_tests;
 
+#[doc(hidden)]
 pub mod ffi;
 #[cfg(windows)]
+#[doc(hidden)]
 pub mod windows;

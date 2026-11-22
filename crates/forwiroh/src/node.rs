@@ -182,6 +182,7 @@ struct ReverseTarget {
     cancel: CancellationToken,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TransportMode {
     Automatic,
     LocalOnly,
