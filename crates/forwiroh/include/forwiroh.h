@@ -16,6 +16,8 @@ char *forwiroh_qr_code(const char *text);
  * own that state directory. Mobile open uses an external 32-byte Keychain key. */
 ForwirohHandle *forwiroh_open_desktop(const char *path, const char *name, char **error);
 ForwirohHandle *forwiroh_open(const char *path, const char *name, const uint8_t key[32], char **error);
+/* Commands return {"data":...} or {"error":"...","error_code":"..."}.
+ * Accept missing/unknown codes from older/newer cores; see docs/control-api.md. */
 char *forwiroh_command(ForwirohHandle *, const char *json);
 char *forwiroh_next_event(ForwirohHandle *);
 int32_t forwiroh_send_packet(ForwirohHandle *, const char *session, const uint8_t *, size_t);

@@ -17,6 +17,19 @@ import Testing
     #expect(try response(.object(["data": .null])) == .null)
     #expect(try response(.object(["data": .array([])])) == .array([]))
     #expect(throws: ForwirohError("denied")) { try response(.object(["error": .string("denied")])) }
+    #expect(ForwirohError("denied").code == nil)
+    #expect(throws: ForwirohError("denied")) {
+        try response(.object(["error": .string("denied"), "error_code": .string("operation_failed")]))
+    }
+    for code in ["invalid_command", "wrong_tunnel_kind", "unsupported_backend", "core_stopped", "operation_failed", "future_code"] {
+        do {
+            _ = try response(.object(["error": .string("denied"), "error_code": .string(code)]))
+            Issue.record("A core error must throw")
+        } catch let error as ForwirohError {
+            #expect(error.code == code)
+            #expect(error.message == "denied")
+        }
+    }
     #expect(throws: ForwirohError.self) { try response(.object([:])) }
     let policy = PeerPolicy(restricted: true, services: ["ssh": "127.0.0.1:22"], socksPorts: [443])
     let data = try JSONEncoder().encode(policy)
@@ -51,7 +64,12 @@ import Testing
     await #expect(throws: ForwirohError.self) {
         try await Forwiroh.open(stateDirectory: path, name: "duplicate")
     }
-    await #expect(throws: ForwirohError.self) { try await core.command(["op": .string("not_a_command")]) }
+    do {
+        _ = try await core.command(["op": .string("not_a_command")])
+        Issue.record("An unknown command must fail")
+    } catch let error as ForwirohError {
+        #expect(error.code == "invalid_command")
+    }
     await #expect(throws: ForwirohError.self) { try await core.receivePacket(session: "missing") }
     let reader = Task { for await _ in core.events {} }
     await withTaskGroup(of: Void.self) { group in
@@ -59,7 +77,12 @@ import Testing
         for _ in 0..<4 { group.addTask { await core.close() } }
     }
     await reader.value
-    await #expect(throws: ForwirohError.self) { try await core.status() }
+    do {
+        _ = try await core.status()
+        Issue.record("A stopped core must fail")
+    } catch let error as ForwirohError {
+        #expect(error.code == "core_stopped")
+    }
     let reopened = try await Forwiroh.open(stateDirectory: path, name: "second")
     #expect(try await reopened.status().id == snapshot.id)
     await reopened.close()
@@ -122,6 +145,13 @@ import Testing
         let socks = try await client.socks(peer: peer, listen: "127.0.0.1:0")
         let tunnels = try await client.status().tunnels
         #expect(Set(tunnels.map(\.id)) == Set([forward, socks]))
+        do {
+            _ = try await client.command(["op": .string("socks_stop"), "id": .string(forward)])
+            Issue.record("A mismatched stop must fail")
+        } catch let error as ForwirohError {
+            #expect(error.code == "wrong_tunnel_kind")
+        }
+        #expect(try await client.status().tunnels.contains(where: { $0.id == forward }))
         try await client.stopTunnel(id: forward)
         try await client.stopTunnel(id: socks)
         try await client.stopTunnel(id: forward)

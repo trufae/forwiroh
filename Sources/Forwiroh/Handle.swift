@@ -18,7 +18,7 @@ final class CoreHandle: @unchecked Sendable {
         condition.lock()
         guard state == .open else {
             condition.unlock()
-            throw ForwirohError("Networking is stopped")
+            throw ForwirohError("Networking is stopped", code: "core_stopped")
         }
         active += 1
         condition.unlock()
@@ -74,7 +74,9 @@ func ownedJSON(_ raw: UnsafeMutablePointer<CChar>?) throws -> JSONValue {
 }
 
 func response(_ value: JSONValue) throws -> JSONValue {
-    if let error = value["error"]?.string { throw ForwirohError(error) }
+    if let error = value["error"]?.string {
+        throw ForwirohError(error, code: value["error_code"]?.string)
+    }
     guard let data = value["data"] else { throw ForwirohError("Invalid core response") }
     return data
 }

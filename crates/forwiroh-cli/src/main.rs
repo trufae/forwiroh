@@ -1,7 +1,11 @@
 use anyhow::{Context, Result, ensure};
 use clap::{Parser, Subcommand};
-use forwiroh::{Node, TransportMode, control::Command, wire};
-use serde_json::{Value, json};
+use forwiroh::{
+    Node, TransportMode,
+    control::{self, Command, ErrorCode},
+    wire,
+};
+use serde_json::Value;
 use std::{
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
@@ -148,12 +152,16 @@ async fn serve(path: &Path, name: &str, mode: TransportMode) -> Result<()> {
             accepted = listener.accept(), if clients.len() < 16 => {
                 let mut socket = accepted?; let node = node.clone();
                 clients.spawn(async move {
-                    let input: Value = tokio::time::timeout(wire::SETUP_TIMEOUT,wire::read_limit(&mut socket, wire::MAX_CONTROL)).await??;
-                    let result = match Command::parse(input, |id| node.tunnel_kind(id)) {
-                        Ok((_, command)) => node.command(command).await,
-                        Err(error) => Err(error),
+                    let input = tokio::time::timeout(wire::SETUP_TIMEOUT,wire::read_limit::<Value>(&mut socket, wire::MAX_CONTROL)).await?;
+                    let result = match input {
+                        Ok(input) => match Command::parse(input, |id| node.tunnel_kind(id)) {
+                            Ok((_, command)) => node.command(command).await,
+                            Err(error) => Err(error),
+                        },
+                        Err(error) if error.downcast_ref::<serde_json::Error>().is_some() => Err(ErrorCode::InvalidCommand.context(error)),
+                        Err(error) => return Err(error),
                     };
-                    let result = match result { Ok(v) => json!({"data":v}), Err(e) => json!({"error":e.to_string()}) };
+                    let result = control::response(result);
                     wire::write_limit(&mut socket,&result, wire::MAX_CONTROL).await?; Ok::<_,anyhow::Error>(())
                 });
             }

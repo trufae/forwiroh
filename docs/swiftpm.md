@@ -79,6 +79,9 @@ Typed methods cover invitations, pairing approval/rejection/cancellation, peers,
 policies, forwards, reverse forwards, SOCKS, VPN sessions and packets. `command`
 accepts a Sendable `[String: JSONValue]` for protocol extensions. Core errors throw
 `ForwirohError`; arrays and null responses retain their original JSON shape.
+Its optional `code` identifies command failures without parsing `message`.
+Older cores can omit codes, and unknown future code strings are preserved.
+See [command errors](control-api.md) for the response format and supported codes.
 
 ## Platform coverage
 

@@ -2,7 +2,14 @@ import Foundation
 
 public struct ForwirohError: Error, LocalizedError, Sendable, Equatable {
     public let message: String
-    public init(_ message: String) { self.message = message }
+    /// Stable core error code; nil for older cores and local validation errors.
+    public let code: String?
+    public init(_ message: String, code: String? = nil) {
+        self.message = message
+        self.code = code
+    }
+    /// Preserve existing message-based equality; compare `code` explicitly.
+    public static func == (lhs: Self, rhs: Self) -> Bool { lhs.message == rhs.message }
     public var errorDescription: String? { message }
 }
 

@@ -1,4 +1,5 @@
 use crate::{
+    control::{CommandError, ErrorCode},
     pairing::{self, Invitation},
     store::{Peer, Policy, Store},
     wire::{self, SETUP_TIMEOUT},
@@ -1004,15 +1005,20 @@ impl Node {
             if let Some(tunnel) = tunnels.get(id) {
                 ensure!(
                     tunnel.kind == kind,
-                    "tunnel {id} is {}, expected {kind}",
-                    tunnel.kind
+                    CommandError::new(
+                        ErrorCode::WrongTunnelKind,
+                        format_args!("tunnel {id} is {}, expected {kind}", tunnel.kind)
+                    )
                 );
                 tunnels.remove(id)
             } else {
                 drop(tunnels);
                 ensure!(
                     kind == "vpn" || !self.vpn.lock().unwrap().contains_key(id),
-                    "tunnel {id} is vpn, expected {kind}"
+                    CommandError::new(
+                        ErrorCode::WrongTunnelKind,
+                        format_args!("tunnel {id} is vpn, expected {kind}")
+                    )
                 );
                 None
             }

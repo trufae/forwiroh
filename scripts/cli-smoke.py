@@ -38,8 +38,8 @@ def terminal_wait(process, fd):
             if not chunk: return process.wait(timeout=max(.01,deadline-time.monotonic()))
             output+=chunk
     return process.returncode
-def rpc(root, command):
-    payload=json.dumps(command).encode()
+def rpc_response(root, command):
+    payload=command if isinstance(command,bytes) else json.dumps(command).encode()
     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as s:
         s.settimeout(15); s.connect(str(root/'control.sock'));s.sendall(b'\x01'+struct.pack('!I',len(payload))+payload)
         def read(n):
@@ -50,13 +50,15 @@ def rpc(root, command):
                 out+=part
             return out
         assert read(1)==b'\x01'; size=struct.unpack('!I',read(4))[0]; assert size<=1024*1024
-        reply=json.loads(read(size))
-        if 'error' in reply: raise RuntimeError(reply['error'])
-        return reply['data']
-def expect_error(root, command, message):
-    try: rpc(root,command)
-    except RuntimeError as error: assert message in str(error),str(error)
-    else: raise AssertionError(f'command should fail: {command}')
+        return json.loads(read(size))
+def rpc(root, command):
+    reply=rpc_response(root,command)
+    if 'error' in reply: raise RuntimeError(reply['error'])
+    return reply['data']
+def expect_error(root, command, message, code='invalid_command'):
+    reply=rpc_response(root,command)
+    assert reply.get('error_code')==code,reply
+    assert message in reply['error'],reply
 with tempfile.TemporaryDirectory() as tmp:
     roots=[Path(tmp)/'home',Path(tmp)/'phone']; processes=[]
     try:
@@ -70,6 +72,12 @@ with tempfile.TemporaryDirectory() as tmp:
                 time.sleep(.02)
             assert rpc(root,{'op':'status'})['version']==version
             assert f'Version: {version}\n' in root.with_suffix('.log').read_text()
+            fixtures=Path(__file__).resolve().parents[1]/'crates/forwiroh/tests/fixtures/control-errors.json'
+            for fixture in json.loads(fixtures.read_text()):
+                if sys.platform=='linux' and fixture.get('platform')=='non_linux':continue
+                reply=rpc_response(root,fixture['raw'].encode() if 'raw' in fixture else fixture['request'])
+                assert reply.get('error_code')==fixture['error_code'],(fixture,reply)
+                assert isinstance(reply.get('error'),str) and 'data' not in reply,reply
             for op in ('stop','forward_stop','reverse_stop','socks_stop','vpn_stop'):
                 assert rpc(root,{'op':op,'id':'missing'}) is None
             expect_error(root,{'op':'stop'},'missing id')
@@ -118,7 +126,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 tunnel=rpc(roots[1],command)['id']
                 for other in ('forward','reverse','socks','vpn'):
                     if other==kind:continue
-                    expect_error(roots[1],{'op':other+'_stop','id':tunnel},'expected '+other)
+                    expect_error(roots[1],{'op':other+'_stop','id':tunnel},'expected '+other,'wrong_tunnel_kind')
                     assert any(t['id']==tunnel for t in rpc(roots[1],{'op':'status'})['tunnels'])
                 assert rpc(roots[1],{'op':stop,'id':tunnel}) is None
                 assert rpc(roots[1],{'op':stop,'id':tunnel}) is None
@@ -129,7 +137,7 @@ with tempfile.TemporaryDirectory() as tmp:
             rule=f"{remote_port}:localhost:{target.getsockname()[1]}"
             reverse=json.loads(subprocess.check_output([binary,'--state',str(roots[1]),'reverse','home',rule]))
             for other in ('forward','socks','vpn'):
-                expect_error(roots[1],{'op':other+'_stop','id':reverse['id']},'expected '+other)
+                expect_error(roots[1],{'op':other+'_stop','id':reverse['id']},'expected '+other,'wrong_tunnel_kind')
             with socket.create_connection(('127.0.0.1',remote_port),timeout=10) as source:
                 source.sendall(b'cli reverse'); source.shutdown(socket.SHUT_WR)
                 accepted,_=target.accept()

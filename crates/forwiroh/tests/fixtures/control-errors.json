@@ -1,0 +1,26 @@
+[
+  {"request": {}, "error_code": "invalid_command"},
+  {"request": null, "error_code": "invalid_command"},
+  {"request": {"op": 42}, "error_code": "invalid_command"},
+  {"request": {"op": "not_a_command"}, "error_code": "invalid_command"},
+  {"request": {"op": "stop"}, "error_code": "invalid_command"},
+  {"request": {"op": "stop", "id": 42}, "error_code": "invalid_command"},
+  {"request": {"op": "stop", "id": "missing", "extra": true}, "error_code": "invalid_command"},
+  {"raw": "{", "error_code": "invalid_command"},
+  {
+    "request": {"op": "forward", "peer": "missing", "listen": "127.0.0.1:0", "service": "127.0.0.1:22"},
+    "error_code": "operation_failed"
+  },
+  {
+    "request": {"op": "forward_start", "peer": "missing", "listen": "127.0.0.1:0", "service": "127.0.0.1:22"},
+    "error_code": "operation_failed"
+  },
+  {
+    "request": {"op": "vpn_start", "peer": "missing", "routes": ["198.18.0.0/16"], "tun": "invalid/name"},
+    "platform": "non_linux", "error_code": "unsupported_backend"
+  },
+  {
+    "request": {"op": "vpn", "peer": "missing", "routes": ["198.18.0.0/16"], "tun": "invalid/name"},
+    "platform": "non_linux", "error_code": "unsupported_backend"
+  }
+]

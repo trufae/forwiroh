@@ -65,7 +65,7 @@ public final class Forwiroh: Sendable {
             guard let pointer else {
                 let message = error.map { String(cString: $0) } ?? "Cannot start networking"
                 let value = try? JSONDecoder().decode(JSONValue.self, from: Data(message.utf8))
-                throw ForwirohError(value?["error"]?.string ?? message)
+                throw ForwirohError(value?["error"]?.string ?? message, code: value?["error_code"]?.string)
             }
             return Forwiroh(handle: CoreHandle(pointer: pointer))
         }

@@ -1,7 +1,11 @@
 //! Small C ABI: commands/events are JSON; VPN packets cross the boundary as bytes.
 //! Calls may run concurrently. Shutdown wakes blocked calls; free only after joining
 //! all callers. Never call these blocking functions on the UI thread.
-use crate::{Node, control::Command, vpn::VpnLink};
+use crate::{
+    Node,
+    control::{self, Command, CommandError, ErrorCode},
+    vpn::VpnLink,
+};
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use std::{
@@ -111,10 +115,7 @@ fn string(value: Value) -> *mut c_char {
         .into_raw()
 }
 fn reply(result: Result<Value>) -> *mut c_char {
-    string(match result {
-        Ok(data) => json!({"data":data}),
-        Err(e) => json!({"error":e.to_string()}),
-    })
+    string(control::response(result))
 }
 unsafe fn text<'a>(p: *const c_char) -> Result<&'a str> {
     ensure!(!p.is_null(), "null string");
@@ -151,9 +152,12 @@ pub unsafe extern "C" fn forwiroh_command(
 ) -> *mut c_char {
     reply((|| {
         let h = unsafe { handle.as_ref() }.context("null handle")?;
-        let input: Value = serde_json::from_str(unsafe { text(input)? })?;
+        let input =
+            unsafe { text(input) }.map_err(|error| ErrorCode::InvalidCommand.context(error))?;
+        let input: Value = serde_json::from_str(input)
+            .map_err(|error| ErrorCode::InvalidCommand.context(error.into()))?;
         h.runtime.block_on(async {
-            ensure!(!h.node.cancel.is_cancelled(),"core stopped");
+            ensure!(!h.node.cancel.is_cancelled(),CommandError::new(ErrorCode::CoreStopped,"core stopped"));
             let (_op, command) = Command::parse(input, |id| h.node.tunnel_kind(id))?;
             if let Command::VpnStart { peer, routes, tun } = &command && tun.is_empty() {
                 {
@@ -163,13 +167,13 @@ pub unsafe extern "C" fn forwiroh_command(
                 }
                 let VpnLink { id,local_ip,remote_ip,routes,packets } = tokio::select! {
                     result = h.node.vpn_with_transport(peer,routes.clone(),cfg!(target_os = "ios")) => result?,
-                    _ = h.node.cancel.cancelled() => anyhow::bail!("core stopped"),
+                    _ = h.node.cancel.cancelled() => anyhow::bail!(CommandError::new(ErrorCode::CoreStopped,"core stopped")),
                 };
                 h.packets.lock().unwrap().insert(id.clone(),Arc::new(AsyncMutex::new(packets)));
                 return Ok(json!({"id":id,"local_ip":local_ip,"remote_ip":remote_ip,"local_ipv6":crate::vpn::ipv6(local_ip),"remote_ipv6":crate::vpn::ipv6(remote_ip),"forward_ip":crate::vpn::FORWARD_IP,"routes":routes,"mtu":crate::vpn::MTU}));
             }
             let stopping_vpn = matches!(command, Command::VpnStop { .. } | Command::LegacyStop { .. });
-            let result = tokio::select! { r = h.node.command(command) => r, _ = h.node.cancel.cancelled() => anyhow::bail!("core stopped") }?;
+            let result = tokio::select! { r = h.node.command(command) => r, _ = h.node.cancel.cancelled() => anyhow::bail!(CommandError::new(ErrorCode::CoreStopped,"core stopped")) }?;
             if stopping_vpn {
                 let sessions = h.node.vpn.lock().unwrap();
                 h.packets.lock().unwrap().retain(|id, _| sessions.contains_key(id));
@@ -311,7 +315,11 @@ mod tests {
     }
 
     fn command(handle: &mut Handle, input: Value) -> Value {
-        let input = CString::new(input.to_string()).unwrap();
+        raw_command(handle, &input.to_string())
+    }
+
+    fn raw_command(handle: &mut Handle, input: &str) -> Value {
+        let input = CString::new(input).unwrap();
         unsafe {
             let raw = forwiroh_command(handle, input.as_ptr());
             let reply = serde_json::from_str(CStr::from_ptr(raw).to_str().unwrap()).unwrap();
@@ -321,18 +329,41 @@ mod tests {
     }
 
     #[test]
+    fn command_errors_match_the_socket_contract_fixtures() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut handle = local_handle(dir.path());
+        let fixtures: Vec<Value> =
+            serde_json::from_str(include_str!("../tests/fixtures/control-errors.json")).unwrap();
+        for fixture in fixtures {
+            if cfg!(target_os = "linux") && fixture["platform"] == "non_linux" {
+                continue;
+            }
+            let reply = if let Some(raw) = fixture["raw"].as_str() {
+                raw_command(&mut handle, raw)
+            } else {
+                command(&mut handle, fixture["request"].clone())
+            };
+            assert_eq!(reply["error_code"], fixture["error_code"], "{fixture}");
+            assert!(
+                reply["error"].is_string(),
+                "legacy clients still receive error text"
+            );
+            assert!(reply.get("data").is_none());
+        }
+        handle.runtime.block_on(handle.node.shutdown());
+    }
+
+    #[test]
     fn explicit_tun_uses_the_same_backend_as_node_commands() {
         let dir = tempfile::tempdir().unwrap();
         let mut handle = local_handle(dir.path());
-        let expected = handle
-            .runtime
-            .block_on(handle.node.command(Command::VpnStart {
+        let expected = control::response(handle.runtime.block_on(handle.node.command(
+            Command::VpnStart {
                 peer: "missing".into(),
                 routes: vec!["198.18.0.0/16".parse().unwrap()],
                 tun: "invalid/name".into(),
-            }))
-            .unwrap_err()
-            .to_string();
+            },
+        )));
         for op in ["vpn_start", "vpn"] {
             assert_eq!(
                 command(
@@ -341,7 +372,7 @@ mod tests {
                         "op": op, "peer": "missing", "routes": ["198.18.0.0/16"], "tun": "invalid/name"
                     })
                 ),
-                json!({"error": expected})
+                expected
             );
             assert!(handle.packets.lock().unwrap().is_empty());
         }
@@ -397,6 +428,7 @@ mod tests {
                 for wrong_id in [id, tunnel] {
                     for wrong_op in ["forward_stop", "reverse_stop", "socks_stop"] {
                         let error = command(&mut handle, json!({"op": wrong_op, "id": wrong_id}));
+                        assert_eq!(error["error_code"], "wrong_tunnel_kind");
                         assert!(error["error"].as_str().unwrap().contains("is vpn"));
                         assert!(handle.packets.lock().unwrap().contains_key(id));
                         assert!(handle.node.vpn_stats(id).is_object());
@@ -460,6 +492,7 @@ mod tests {
                         &mut handle,
                         json!({"op": format!("{other}_stop"), "id": id}),
                     );
+                    assert_eq!(reply["error_code"], "wrong_tunnel_kind");
                     assert!(
                         reply["error"]
                             .as_str()
@@ -558,6 +591,14 @@ mod tests {
             forwiroh_shutdown(handle);
             assert_eq!(reader.join().unwrap(), 0);
             let result = forwiroh_command(handle, command.as_ptr());
+            let error: Value =
+                serde_json::from_str(CStr::from_ptr(result).to_str().unwrap()).unwrap();
+            assert_eq!(error["error_code"], "core_stopped");
+            let h = &*handle;
+            assert_eq!(
+                error,
+                control::response(h.runtime.block_on(h.node.command(Command::Status)))
+            );
             assert!(
                 CStr::from_ptr(result)
                     .to_str()

@@ -5,6 +5,68 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{net::SocketAddr, sync::Arc};
 
+/// Stable command error categories. Human-readable messages may change independently.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ErrorCode {
+    InvalidCommand,
+    WrongTunnelKind,
+    UnsupportedBackend,
+    CoreStopped,
+    OperationFailed,
+}
+
+impl ErrorCode {
+    /// Attach a code while preserving the original error and its displayed message.
+    pub fn context(self, error: anyhow::Error) -> anyhow::Error {
+        let message = error.to_string();
+        error.context(CommandError::new(self, message))
+    }
+}
+
+/// A typed command error, also recoverable through `anyhow::Error::downcast_ref`.
+#[derive(Debug)]
+pub struct CommandError {
+    code: ErrorCode,
+    message: String,
+}
+
+impl CommandError {
+    pub fn new(code: ErrorCode, message: impl std::fmt::Display) -> Self {
+        Self {
+            code,
+            message: message.to_string(),
+        }
+    }
+
+    pub fn code(&self) -> ErrorCode {
+        self.code
+    }
+}
+
+impl std::fmt::Display for CommandError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CommandError {}
+
+/// The common socket/FFI response envelope. Success shapes and error strings stay
+/// compatible; failures additionally carry a stable `error_code`.
+pub fn response(result: Result<Value>) -> Value {
+    match result {
+        Ok(data) => json!({"data": data}),
+        Err(error) => {
+            let code = error
+                .downcast_ref::<CommandError>()
+                .map_or(ErrorCode::OperationFailed, CommandError::code);
+            json!({"error": error.to_string(), "error_code": code})
+        }
+    }
+}
+
 /// Op names still sent by released clients, mapped to their replacement.
 /// Delete an entry once no shipped client uses the old spelling.
 const LEGACY_OPS: [(&str, &str); 17] = [
@@ -142,28 +204,35 @@ impl Command {
         mut value: Value,
         kind_of: impl FnOnce(&str) -> Option<String>,
     ) -> Result<(String, Command)> {
-        let legacy = value["op"].as_str().context("missing op")?;
-        let op = match legacy {
-            "stop" => {
-                let id = value["id"].as_str().context("missing id")?;
-                match kind_of(id).as_deref() {
-                    Some("forward") => "forward_stop",
-                    Some("reverse") => "reverse_stop",
-                    Some("socks") => "socks_stop",
-                    Some("vpn") => "vpn_stop",
-                    Some(kind) => anyhow::bail!("cannot stop a {kind} tunnel"),
-                    None => "stop",
+        (|| -> Result<_> {
+            let legacy = value["op"].as_str().context("missing op")?;
+            let op = match legacy {
+                "stop" => {
+                    let id = value["id"].as_str().context("missing id")?;
+                    match kind_of(id).as_deref() {
+                        Some("forward") => "forward_stop",
+                        Some("reverse") => "reverse_stop",
+                        Some("socks") => "socks_stop",
+                        Some("vpn") => "vpn_stop",
+                        Some(kind) => anyhow::bail!("cannot stop a {kind} tunnel"),
+                        None => "stop",
+                    }
                 }
+                legacy => canonical_op(legacy).unwrap_or(legacy),
             }
-            legacy => canonical_op(legacy).unwrap_or(legacy),
-        }
-        .to_string();
-        value["op"] = json!(op);
-        Ok((op, serde_json::from_value(value)?))
+            .to_string();
+            value["op"] = json!(op);
+            Ok((op, serde_json::from_value(value)?))
+        })()
+        .map_err(|error| ErrorCode::InvalidCommand.context(error))
     }
 }
 impl Node {
     pub async fn command(self: &Arc<Self>, command: Command) -> Result<Value> {
+        anyhow::ensure!(
+            !self.cancel.is_cancelled(),
+            CommandError::new(ErrorCode::CoreStopped, "core stopped")
+        );
         Ok(match command {
             Command::Status => self.snapshot(),
             Command::NetworkChange => {
@@ -266,9 +335,10 @@ impl Node {
                 #[cfg(not(target_os = "linux"))]
                 {
                     let _ = (peer, routes, tun);
-                    anyhow::bail!(
+                    anyhow::bail!(CommandError::new(
+                        ErrorCode::UnsupportedBackend,
                         "use the iOS Packet Tunnel extension; desktop TUN currently requires Linux"
-                    )
+                    ))
                 }
             }
             Command::VpnStop { id } => {
@@ -283,6 +353,42 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn response_shapes_and_error_codes_are_compatible() {
+        for data in [Value::Null, json!([]), json!({"id": "tunnel"})] {
+            assert_eq!(response(Ok(data.clone())), json!({"data": data}));
+        }
+        let error = ErrorCode::InvalidCommand.context(anyhow::anyhow!("original message"));
+        assert_eq!(error.to_string(), "original message");
+        assert_eq!(
+            response(Err(error.context("outer message"))),
+            json!({
+                "error": "outer message", "error_code": "invalid_command"
+            })
+        );
+        // Classification comes from the type, never the wording of an error.
+        assert_eq!(
+            response(Err(anyhow::anyhow!("core stopped"))),
+            json!({
+                "error": "core stopped", "error_code": "operation_failed"
+            })
+        );
+        for (code, name) in [
+            (ErrorCode::InvalidCommand, "invalid_command"),
+            (ErrorCode::WrongTunnelKind, "wrong_tunnel_kind"),
+            (ErrorCode::UnsupportedBackend, "unsupported_backend"),
+            (ErrorCode::CoreStopped, "core_stopped"),
+            (ErrorCode::OperationFailed, "operation_failed"),
+        ] {
+            let error: anyhow::Error = CommandError::new(code, "unchanged text").into();
+            assert_eq!(error.downcast_ref::<CommandError>().unwrap().code(), code);
+            assert_eq!(
+                response(Err(error)),
+                json!({"error": "unchanged text", "error_code": name})
+            );
+        }
+    }
 
     /// Legacy names resolve, and only the canonical name reaches the enum.
     fn parse(value: Value) -> Result<(String, Command)> {
