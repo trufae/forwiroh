@@ -68,7 +68,7 @@ jobs:
           xcodebuild -project apps/ios/Forwiroh.xcodeproj -scheme Forwiroh
           -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
           -derivedDataPath DerivedData/simulator ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Forwiroh-unsigned-device-and-simulator
           path: DerivedData/*/Build/Products/Release-*/*.app
@@ -113,7 +113,7 @@ jobs:
           disable-animations: true
           working-directory: apps/android
           script: ./gradlew --no-daemon connectedDebugAndroidTest
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: Forwiroh-android-debug
@@ -147,7 +147,7 @@ jobs:
         run: >-
           FORWIROH_STATE=$RUNNER_TEMP/forwiroh-ui-test FORWIROH_UI_SMOKE=1
           G_DEBUG=fatal-criticals xvfb-run -a dbus-run-session -- apps/gtk/build/forwiroh-gtk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: runner.os == 'macOS'
         with:
           name: Forwiroh-macOS
