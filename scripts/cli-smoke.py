@@ -83,6 +83,8 @@ with tempfile.TemporaryDirectory() as tmp:
                 assert isinstance(reply.get('error'),str) and 'data' not in reply,reply
             for op in ('stop','forward_stop','reverse_stop','socks_stop','vpn_stop'):
                 assert rpc(root,{'op':op,'id':'missing'}) is None
+            for command in ('stop','stop-vpn'):
+                assert subprocess.check_output([binary,'--state',str(root),command,'-missing'],text=True).strip()=='null'
             expect_error(root,{'op':'stop'},'missing id')
             expect_error(root,{'op':'stop','id':42},'missing id')
             expect_error(root,{'op':'stop','id':'missing','extra':True},'unknown field')

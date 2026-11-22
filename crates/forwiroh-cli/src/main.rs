@@ -44,6 +44,7 @@ enum Cmd {
     CancelPair,
     Pending,
     Approve {
+        #[arg(allow_hyphen_values = true)]
         id: String,
         #[arg(long)]
         reject: bool,
@@ -87,6 +88,7 @@ enum Cmd {
         listen: SocketAddr,
     },
     Stop {
+        #[arg(allow_hyphen_values = true)]
         id: String,
     },
     Vpn {
@@ -97,10 +99,35 @@ enum Cmd {
         tun: String,
     },
     StopVpn {
+        #[arg(allow_hyphen_values = true)]
         id: String,
     },
     Version,
 }
+
+#[test]
+fn opaque_ids_accept_leading_hyphens() {
+    for id in ["-session", "--session"] {
+        for command in ["approve", "stop", "stop-vpn"] {
+            let cli = Cli::try_parse_from(["forwiroh", command, id]).unwrap();
+            let parsed = match cli.command {
+                Cmd::Approve { id, .. } | Cmd::Stop { id } | Cmd::StopVpn { id } => id,
+                _ => unreachable!(),
+            };
+            assert_eq!(parsed, id);
+        }
+    }
+    for args in [
+        ["forwiroh", "approve", "-request", "--reject"],
+        ["forwiroh", "approve", "--reject", "-request"],
+    ] {
+        assert!(matches!(
+            Cli::try_parse_from(args).unwrap().command,
+            Cmd::Approve { id, reject: true } if id == "-request"
+        ));
+    }
+}
+
 fn default_dir() -> PathBuf {
     #[cfg(windows)]
     if let Some(path) = std::env::var_os("LOCALAPPDATA") {
