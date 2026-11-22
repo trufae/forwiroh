@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory() as tmp:
         invite=rpc(roots[0],{'op':'invite_create'})
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future=pool.submit(rpc,roots[1],{'op':'pair_start','uri':invite['uri'],'device':'linux'})
+            future=pool.submit(rpc,roots[1],{'op':'pair','uri':invite['uri'],'device':'linux'})
             deadline=time.monotonic()+20
             while not (pending:=rpc(roots[0],{'op':'peer_pending'})):
                 if time.monotonic()>deadline:raise RuntimeError('pair request timed out')

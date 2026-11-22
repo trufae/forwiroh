@@ -334,7 +334,8 @@ struct TunnelForm: View {
     private func start() async {
         starting = true; defer { starting = false }
         guard let number = UInt16(port), number > 0 else { model.error = "Enter a listening port between 1 and 65535"; return }
-        var command: [String: Any] = ["op": "\(kind.rawValue)_start", "peer": peer.id]
+        let op = kind == .forward ? "forward" : "\(kind.rawValue)_start"
+        var command: [String: Any] = ["op": op, "peer": peer.id]
         if kind == .socks { command["listen"] = "127.0.0.1:\(number)" }
         else {
             guard let target = UInt16(targetPort), target > 0 else { model.error = "Enter a destination port between 1 and 65535"; return }

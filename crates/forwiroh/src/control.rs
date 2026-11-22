@@ -10,7 +10,7 @@ use std::{net::SocketAddr, sync::Arc};
 const LEGACY_OPS: [(&str, &str); 17] = [
     ("invite", "invite_create"),
     ("cancel_invite", "invite_cancel"),
-    ("pair", "pair_start"),
+    ("pair_start", "pair"),
     ("cancel_pair", "pair_cancel"),
     ("pending", "peer_pending"),
     ("approve", "peer_approve"),
@@ -20,7 +20,7 @@ const LEGACY_OPS: [(&str, &str); 17] = [
     ("services", "peer_services"),
     ("policy", "peer_policy"),
     ("allow", "peer_allow"),
-    ("forward", "forward_start"),
+    ("forward_start", "forward"),
     ("reverse", "reverse_start"),
     ("socks", "socks_start"),
     ("vpn", "vpn_start"),
@@ -35,8 +35,9 @@ pub fn canonical_op(op: &str) -> Option<&'static str> {
         .map(|(_, current)| *current)
 }
 
-/// Ops are `<noun>_<verb>`, verb last: every `_start` has a `_stop`, every `_create`
-/// a `_cancel`, and no verb hangs off a noun it does not name.
+/// Primary actions use `pair` and `forward`. Other lifecycle actions are
+/// `<noun>_<verb>`, with `_start` reserved for operations with a matching `_stop`.
+/// Pairing is cancelled with `pair_cancel`; forwarding is stopped with `forward_stop`.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
@@ -48,7 +49,7 @@ pub enum Command {
     InviteCancel {
         id: String,
     },
-    PairStart {
+    Pair {
         uri: String,
         device: String,
     },
@@ -85,7 +86,7 @@ pub enum Command {
         service: String,
         destination: String,
     },
-    ForwardStart {
+    Forward {
         peer: String,
         listen: SocketAddr,
         service: String,
@@ -172,9 +173,9 @@ impl Node {
                 self.cancel_invitation(&id);
                 Value::Null
             }
-            Command::PairStart { uri, device } => json!({"id":self.pair(&uri,&device).await?}),
+            Command::Pair { uri, device } => json!({"id":self.pair(&uri,&device).await?}),
             Command::PairCancel => {
-                self.cancel_pair();
+                self.pair_cancel();
                 Value::Null
             }
             Command::PeerPending => self.pending(),
@@ -218,20 +219,28 @@ impl Node {
                 self.set_policy(&peer, p)?;
                 Value::Null
             }
-            Command::ForwardStart {
+            Command::Forward {
                 peer,
                 listen,
                 service,
             } => json!({"id":self.forward(&peer,listen,service).await?}),
             Command::TunnelFailure { id } => self.tunnel_failure(&id),
             Command::ReverseStart { peer, port, target } => {
-                json!({"id":self.reverse(&peer,port,target).await?})
+                json!({"id":self.reverse_start(&peer,port,target).await?})
             }
-            Command::SocksStart { peer, listen } => json!({"id":self.socks(&peer,listen).await?}),
-            Command::ForwardStop { id }
-            | Command::ReverseStop { id }
-            | Command::SocksStop { id } => {
-                self.stop(&id);
+            Command::SocksStart { peer, listen } => {
+                json!({"id":self.socks_start(&peer,listen).await?})
+            }
+            Command::ForwardStop { id } => {
+                self.forward_stop(&id);
+                Value::Null
+            }
+            Command::ReverseStop { id } => {
+                self.reverse_stop(&id);
+                Value::Null
+            }
+            Command::SocksStop { id } => {
+                self.socks_stop(&id);
                 Value::Null
             }
             Command::VpnStart { peer, routes, tun } => {
@@ -248,7 +257,7 @@ impl Node {
                 }
             }
             Command::VpnStop { id } => {
-                self.stop_vpn(&id);
+                self.vpn_stop(&id);
                 Value::Null
             }
             Command::VpnStats { id } => self.vpn_stats(&id),
@@ -266,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_ops_are_rewritten_to_their_canonical_noun_verb_name() {
+    fn legacy_ops_are_rewritten_to_their_canonical_name() {
         for (legacy, current) in LEGACY_OPS {
             assert_eq!(canonical_op(legacy), Some(current));
         }
@@ -279,29 +288,58 @@ mod tests {
     }
 
     #[test]
-    fn every_tunnel_noun_has_a_start_and_a_stop() {
+    fn pair_and_forward_keep_their_primary_names_and_accept_start_aliases() {
+        let commands = [
+            (
+                "pair_start",
+                json!({"op": "pair", "uri": "invite", "device": "test"}),
+            ),
+            (
+                "forward_start",
+                json!({"op": "forward", "peer": "p", "listen": "127.0.0.1:0", "service": "s"}),
+            ),
+        ];
+        for (legacy, canonical) in commands {
+            assert!(serde_json::from_value::<Command>(canonical.clone()).is_ok());
+            let mut aliased = canonical.clone();
+            aliased["op"] = json!(legacy);
+            for input in [canonical.clone(), aliased] {
+                let (op, command) = parse(input).unwrap();
+                assert_eq!(op, canonical["op"].as_str().unwrap());
+                assert_eq!(serde_json::to_value(command).unwrap(), canonical);
+            }
+        }
+    }
+
+    #[test]
+    fn tunnel_commands_have_matching_stop_operations() {
         let tunnels = [
             (
+                "forward",
                 "forward",
                 json!({"peer": "p", "listen": "127.0.0.1:0", "service": "s"}),
             ),
             (
                 "reverse",
+                "reverse_start",
                 json!({"peer": "p", "port": 1, "target": "127.0.0.1:2"}),
             ),
-            ("socks", json!({"peer": "p", "listen": "127.0.0.1:0"})),
-            ("vpn", json!({"peer": "p", "routes": []})),
+            (
+                "socks",
+                "socks_start",
+                json!({"peer": "p", "listen": "127.0.0.1:0"}),
+            ),
+            ("vpn", "vpn_start", json!({"peer": "p", "routes": []})),
         ];
-        for (noun, fields) in tunnels {
-            let mut start = fields.clone();
-            start["op"] = json!(format!("{noun}_start"));
-            assert_eq!(parse(start).unwrap().0, format!("{noun}_start"));
+        for (noun, op, mut start) in tunnels {
+            start["op"] = json!(op);
+            assert_eq!(parse(start).unwrap().0, op);
             let stop = json!({"op": format!("{noun}_stop"), "id": "x"});
             assert_eq!(parse(stop).unwrap().0, format!("{noun}_stop"));
         }
         assert!(
             serde_json::from_value::<Command>(json!({"op": "tunnel_stop", "id": "x"})).is_err(),
-            "there is no generic stop; it would have no matching start"
+            "use the tunnel's specific stop operation"
         );
     }
 

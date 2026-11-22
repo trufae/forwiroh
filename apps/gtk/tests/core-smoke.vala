@@ -50,7 +50,7 @@ async void smoke () throws Error {
         var qr = unpack (take_string (Native.qr_code (uri))).get_object ();
         int width = (int) qr.get_int_member ("width");
         assert (width > 20 && array (qr, "pixels").get_length () == width * width);
-        var cmd = make_command ("pair_start"); cmd.get_object ().set_string_member ("uri", uri); cmd.get_object ().set_string_member ("device", "GTK test");
+        var cmd = make_command ("pair"); cmd.get_object ().set_string_member ("uri", uri); cmd.get_object ().set_string_member ("device", "GTK test");
         bool paired = false; string? pair_error = null;
         phone.request.begin (cmd, (obj, res) => {
             try { phone.request.end (res); } catch (Error e) { pair_error = e.message; }
@@ -64,7 +64,7 @@ async void smoke () throws Error {
         var service = new SocketService ();
         uint16 port = service.add_any_inet_port (null);
         service.incoming.connect ((connection, obj) => { smoke_echo.begin (connection); return true; }); service.start ();
-        cmd = make_command ("forward_start"); cmd.get_object ().set_string_member ("peer", home_id); cmd.get_object ().set_string_member ("listen", "127.0.0.1:0"); cmd.get_object ().set_string_member ("service", "127.0.0.1:%u".printf (port));
+        cmd = make_command ("forward"); cmd.get_object ().set_string_member ("peer", home_id); cmd.get_object ().set_string_member ("listen", "127.0.0.1:0"); cmd.get_object ().set_string_member ("service", "127.0.0.1:%u".printf (port));
         var tunnel = yield phone.request (cmd);
         string tunnel_id = text (tunnel.get_object (), "id");
         var snapshot = yield phone.request (make_command ("status"));
@@ -84,7 +84,7 @@ async void smoke () throws Error {
         cmd = make_command ("peer_revoke"); cmd.get_object ().set_string_member ("peer", phone_id); yield home.request (cmd);
         cmd = make_command ("peer_revoke"); cmd.get_object ().set_string_member ("peer", home_id); yield phone.request (cmd);
         invitation = yield home.request (make_command ("invite_create"));
-        cmd = make_command ("pair_start"); cmd.get_object ().set_string_member ("uri", text (invitation.get_object (), "uri")); cmd.get_object ().set_string_member ("device", "GTK test");
+        cmd = make_command ("pair"); cmd.get_object ().set_string_member ("uri", text (invitation.get_object (), "uri")); cmd.get_object ().set_string_member ("device", "GTK test");
         paired = false;
         phone.request.begin (cmd, (obj, res) => { try { phone.request.end (res); } catch (Error e) { pair_error = e.message; } paired = true; });
         yield wait_pending (home);

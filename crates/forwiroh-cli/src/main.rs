@@ -261,7 +261,7 @@ async fn pair(path: &Path, accept: Option<String>) -> Result<()> {
         };
         let v = rpc(
             path,
-            &Command::PairStart {
+            &Command::Pair {
                 uri,
                 device: std::env::consts::OS.into(),
             },
@@ -381,7 +381,7 @@ async fn main() -> Result<()> {
             let (port, service) = rule
                 .split_once(':')
                 .context("expected local-port:host:port or local-port:service")?;
-            Command::ForwardStart {
+            Command::Forward {
                 peer,
                 listen: SocketAddr::from((Ipv4Addr::LOCALHOST, port.parse::<u16>()?)),
                 service: service.into(),

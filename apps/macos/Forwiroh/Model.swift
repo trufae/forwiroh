@@ -136,6 +136,6 @@ final class Model: ObservableObject {
     }
     func pair(_ uri: String) async -> Bool {
         pairing = true; defer { pairing = false }
-        return await run(["op": "pair_start", "uri": uri.trimmingCharacters(in: .whitespacesAndNewlines), "device": "macOS"], notice: "Device paired")
+        return await run(["op": "pair", "uri": uri.trimmingCharacters(in: .whitespacesAndNewlines), "device": "macOS"], notice: "Device paired")
     }
 }

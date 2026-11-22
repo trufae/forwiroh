@@ -190,7 +190,7 @@ public final class MainActivity extends Activity {
             try {
                 int number = Integer.parseInt(port.getText().toString());
                 if (number < 1 || number > 65535) throw new IllegalArgumentException("Port must be 1–65535");
-                JSONObject command = json("op", kind == 0 ? "forward_start" : kind == 1 ? "reverse_start" : "socks_start", "peer", peer);
+                JSONObject command = json("op", kind == 0 ? "forward" : kind == 1 ? "reverse_start" : "socks_start", "peer", peer);
                 if (kind == 1) { command.put("port", number); command.put("target", destination.getText().toString().trim()); }
                 else {
                     command.put("listen", (kind == 0 && lan.isChecked() ? "0.0.0.0:" : "127.0.0.1:") + number);
@@ -220,7 +220,7 @@ public final class MainActivity extends Activity {
                     .setMessage("Only accept invitations from a device you trust. Paired peers can access TCP destinations on this device unless you restrict their policy. Confirm this request on the other device.")
                     .setNegativeButton("Cancel", null).setPositiveButton("Pair", (d,w) -> {
                         state.setText("Waiting for approval on the other device…");
-                        run(json("op", "pair_start", "uri", uri, "device", "Android"));
+                        run(json("op", "pair", "uri", uri, "device", "Android"));
                     }).show();
         } catch (Exception e) { error(e.getMessage()); }
     }

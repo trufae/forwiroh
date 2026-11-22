@@ -609,7 +609,7 @@ impl Node {
             result = self.pair_invitation(invite, device) => result,
         }
     }
-    pub fn cancel_pair(&self) {
+    pub fn pair_cancel(&self) {
         if let Some(cancel) = self.pairing.lock().unwrap().as_ref() {
             cancel.cancel();
         }
@@ -991,7 +991,7 @@ impl Node {
     pub fn tunnel_kind(&self, id: &str) -> Option<String> {
         self.tunnels.lock().unwrap().get(id).map(|t| t.kind.clone())
     }
-    pub fn stop(&self, id: &str) {
+    pub fn forward_stop(&self, id: &str) {
         self.remove_tunnel(id);
     }
     pub(crate) fn tunnel_failure(&self, id: &str) -> Value {
@@ -1067,7 +1067,11 @@ impl Node {
         });
         Ok(id)
     }
-    pub async fn reverse(
+    pub fn reverse_stop(&self, id: &str) {
+        self.remove_tunnel(id);
+    }
+    /// Start a reverse forward; `reverse_stop` closes its listener and streams.
+    pub async fn reverse_start(
         self: &Arc<Self>,
         peer: &str,
         port: u16,

@@ -302,11 +302,12 @@ impl Node {
     pub fn vpn_stats(&self, id: &str) -> serde_json::Value {
         self.vpn.lock().unwrap().get(id).map(|s| json!({"sent":s.sent.load(Ordering::Relaxed),"received":s.received.load(Ordering::Relaxed),"dropped":s.dropped.load(Ordering::Relaxed),"pending_packets":s.assembly.len()})).unwrap_or_default()
     }
-    pub async fn start_vpn(self: &Arc<Self>, peer: &str, routes: Vec<IpNet>) -> Result<VpnLink> {
-        self.start_vpn_with_transport(peer, routes, false).await
+    /// Start a packet VPN session; `vpn_stop` closes it.
+    pub async fn vpn_start(self: &Arc<Self>, peer: &str, routes: Vec<IpNet>) -> Result<VpnLink> {
+        self.vpn_with_transport(peer, routes, false).await
     }
     /// Only an OS packet-tunnel provider with process-level transport bypass may set this.
-    pub async fn start_vpn_with_transport(
+    pub async fn vpn_with_transport(
         self: &Arc<Self>,
         peer: &str,
         routes: Vec<IpNet>,
@@ -385,7 +386,7 @@ impl Node {
             self.tasks.spawn(async move {
                 if let Err(e) = n.socket_exit(&id, local_rx, FORWARD_IP, true, stop).await {
                     n.emit(json!({"event":"vpn_error","error":e.to_string()}));
-                    n.stop_vpn(&id);
+                    n.vpn_stop(&id);
                 }
             });
         }
@@ -404,7 +405,7 @@ impl Node {
             packets,
         })
     }
-    pub fn stop_vpn(&self, id: &str) {
+    pub fn vpn_stop(&self, id: &str) {
         let mut sessions = self.vpn.lock().unwrap();
         let tag = sessions
             .iter()
@@ -527,7 +528,7 @@ impl Node {
             let mut recv = recv; let mut byte = [0];
             tokio::select! { r = backend => r, _ = recv.read(&mut byte) => Ok(()), _ = conn.closed() => Ok(()), _ = cancel.cancelled() => Ok(()) }
         }.await;
-        self.stop_vpn(&session);
+        self.vpn_stop(&session);
         self.emit(json!({"event":"vpn_stopped","peer":conn.remote_id().to_string()}));
         let _ = send.finish();
         result
@@ -560,12 +561,12 @@ impl Node {
         name: &str,
     ) -> Result<String> {
         let device = open_tun(name)?;
-        let link = self.start_vpn(peer, routes).await?;
+        let link = self.vpn_start(peer, routes).await?;
         let n = self.clone();
         let id = link.id.clone();
         self.tasks.spawn(async move {
             let result = n.pump_tun(&link.id, device, link.packets).await;
-            n.stop_vpn(&link.id);
+            n.vpn_stop(&link.id);
             if let Err(e) = result {
                 n.emit(json!({"event":"vpn_error","error":e.to_string()}));
             }
@@ -733,7 +734,7 @@ mod tests {
                 .await
                 .is_err()
         );
-        client.stop_vpn(&id);
+        client.vpn_stop(&id);
         assert!(client.send_packet(&id, &p).is_err());
         client.shutdown().await;
         server.shutdown().await;

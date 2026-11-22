@@ -45,7 +45,11 @@ pub async fn connect_allowed(policy: &Policy, host: &str, port: u16) -> Result<T
     .await?
 }
 impl Node {
-    pub async fn socks(self: &Arc<Self>, peer: &str, listen: SocketAddr) -> Result<String> {
+    pub fn socks_stop(&self, id: &str) {
+        self.remove_tunnel(id);
+    }
+    /// Start a SOCKS listener; `socks_stop` closes it and its streams.
+    pub async fn socks_start(self: &Arc<Self>, peer: &str, listen: SocketAddr) -> Result<String> {
         ensure!(listen.ip().is_loopback(), "SOCKS must bind loopback");
         let p = self.peer(peer)?;
         let listener = TcpListener::bind(listen).await?;

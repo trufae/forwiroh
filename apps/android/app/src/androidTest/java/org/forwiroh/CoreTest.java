@@ -63,7 +63,7 @@ public class CoreTest {
              ServerSocket echo = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
             echo.setSoTimeout(20000);
             String uri = ((JSONObject)server.command(json("op", "invite_create"))).getString("uri");
-            Future<Object> paired = workers.submit(() -> client.command(json("op", "pair_start", "uri", uri, "device", "Android")));
+            Future<Object> paired = workers.submit(() -> client.command(json("op", "pair", "uri", uri, "device", "Android")));
             JSONArray pending = new JSONArray();
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
             while (pending.length() == 0 && System.nanoTime() < deadline) {
@@ -78,7 +78,7 @@ public class CoreTest {
             assertEquals("Home 🐱", ((JSONObject)client.command(json("op", "status"))).getJSONArray("peers").getJSONObject(0).getString("name"));
             int port;
             try (ServerSocket unused = new ServerSocket(0)) { port = unused.getLocalPort(); }
-            JSONObject tunnel = (JSONObject)client.command(json("op", "forward_start", "peer", serverId,
+            JSONObject tunnel = (JSONObject)client.command(json("op", "forward", "peer", serverId,
                     "listen", "127.0.0.1:" + port, "service", "127.0.0.1:" + echo.getLocalPort()));
             byte[] message = RustCore.utf8("Android JNI → Iroh → TCP 🐱");
             Future<?> echoed = workers.submit(() -> {

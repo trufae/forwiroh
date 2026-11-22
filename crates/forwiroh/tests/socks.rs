@@ -11,7 +11,7 @@ async fn socks_connect_remote_dns_and_destination_denial() {
     let (addr, echo) = echo().await;
     let (ipv6, echo6) = echo_on("[::1]:0").await;
     let id = phone
-        .socks(&home_id, "127.0.0.1:0".parse().unwrap())
+        .socks_start(&home_id, "127.0.0.1:0".parse().unwrap())
         .await
         .unwrap();
     let listen = local_listener(&phone, &id);
@@ -72,6 +72,17 @@ async fn socks_connect_remote_dns_and_destination_denial() {
             .await
             .is_err()
     );
+    phone.socks_stop(&id);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if tokio::net::TcpListener::bind(listen).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
     phone.shutdown().await;
     home.shutdown().await;
     echo.abort();

@@ -162,7 +162,7 @@ pub unsafe extern "C" fn forwiroh_command(
                     ensure!(readers.len() < 8, "packet reader limit reached");
                 }
                 let VpnLink { id,local_ip,remote_ip,routes,packets } = tokio::select! {
-                    result = h.node.start_vpn_with_transport(&peer,routes,cfg!(target_os = "ios")) => result?,
+                    result = h.node.vpn_with_transport(&peer,routes,cfg!(target_os = "ios")) => result?,
                     _ = h.node.cancel.cancelled() => anyhow::bail!("core stopped"),
                 };
                 h.packets.lock().unwrap().insert(id.clone(),Arc::new(AsyncMutex::new(packets)));

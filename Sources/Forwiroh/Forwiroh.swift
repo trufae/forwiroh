@@ -120,7 +120,7 @@ public final class Forwiroh: Sendable {
     public func cancelInvitation(id: String) async throws { _ = try await request("invite_cancel", ["id": .string(id)]) }
     @discardableResult
     public func pair(invitation: String, device: String) async throws -> String {
-        try await identifier("pair_start", ["uri": .string(invitation), "device": .string(device)])
+        try await identifier("pair", ["uri": .string(invitation), "device": .string(device)])
     }
     public func cancelPair() async throws { _ = try await request("pair_cancel") }
     public func approve(id: String, accept: Bool = true) async throws {
@@ -143,7 +143,7 @@ public final class Forwiroh: Sendable {
     /// Listen is a numeric IP:port. Service is a name or destination IP:port on the peer.
     @discardableResult
     public func forward(peer: String, listen: String = "127.0.0.1:0", service: String) async throws -> String {
-        try await identifier("forward_start", ["peer": .string(peer), "listen": .string(listen), "service": .string(service)])
+        try await identifier("forward", ["peer": .string(peer), "listen": .string(listen), "service": .string(service)])
     }
     @discardableResult
     public func reverse(peer: String, port: UInt16, target: String) async throws -> String {

@@ -147,7 +147,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
                             throw ForwirohError(message: "Invalid VPN command")
                         }
                         let op = command["op"] as? String ?? ""
-                        if ["forward_start", "reverse_start", "socks_start"].contains(op), let forward = value["id"] as? String {
+                        if ["forward", "reverse_start", "socks_start"].contains(op), let forward = value["id"] as? String {
                             self.activeForwards[forward] = command
                         }
                         if op.hasSuffix("_stop"), let forward = command["id"] as? String { self.activeForwards.removeValue(forKey: forward) }

@@ -270,14 +270,14 @@ async fn rootless_vpn_tcp_udp_ipv6_virtual_hosts_policy_and_revocation() {
         .unwrap();
     let routes = vec!["0.0.0.0/0".parse().unwrap(), "::/0".parse().unwrap()];
     let error = client
-        .start_vpn_with_transport(&peer, routes.clone(), true)
+        .vpn_with_transport(&peer, routes.clone(), true)
         .await
         .err()
         .unwrap();
     assert!(error.to_string().contains("VPN not authorized"));
     server.set_policy(&phone, Policy::default()).unwrap();
     let mut link = client
-        .start_vpn_with_transport(&peer, routes, true)
+        .vpn_with_transport(&peer, routes, true)
         .await
         .unwrap();
     let (tcp4, udp4, t4, u4) = echoes("127.0.0.1:0").await;

@@ -279,7 +279,7 @@ namespace Forwiroh {
             var accept = new Gtk.Button.with_label ("Accept & pair"); content.append (accept);
             accept.clicked.connect (() => {
                 if (pairing) return;
-                var cmd = make_command ("pair_start"); cmd.get_object ().set_string_member ("uri", entry.text.strip ()); cmd.get_object ().set_string_member ("device", "Linux");
+                var cmd = make_command ("pair"); cmd.get_object ().set_string_member ("uri", entry.text.strip ()); cmd.get_object ().set_string_member ("device", "Linux");
                 pairing = true; accept.sensitive = false; accept.label = "Waiting for approval…";
                 run.begin (cmd, "Device paired", (obj, res) => { bool success = run.end (res); pairing = false; accept.sensitive = true; accept.label = "Accept & pair"; if (success && pair_window != null) pair_window.close (); });
             });
@@ -346,7 +346,7 @@ namespace Forwiroh {
             window.close_request.connect (() => starting);
             start.clicked.connect (() => {
                 if (starting) return;
-                var cmd = make_command (kind + "_start"); var obj = cmd.get_object (); obj.set_string_member ("peer", id);
+                var cmd = make_command (kind == "forward" ? "forward" : kind + "_start"); var obj = cmd.get_object (); obj.set_string_member ("peer", id);
                 uint64 number = 0, target = 0;
                 if (kind != "vpn" && (!uint64.try_parse (port.text, out number) || number == 0 || number > 65535)) { form_error.label = "Enter a listening port between 1 and 65535"; return; }
                 if (host != null && target_port != null && (!uint64.try_parse (target_port.text, out target) || target == 0 || target > 65535 || host.text.strip () == "")) { form_error.label = "Enter a destination host and port between 1 and 65535"; return; }
@@ -365,7 +365,7 @@ namespace Forwiroh {
         }
         private async void start_tunnel (Json.Node cmd, string service, Gtk.Window window, Gtk.Box content, Gtk.Button start, Gtk.Label form_error) {
             try {
-                if (text (cmd.get_object (), "op") == "forward_start") {
+                if (text (cmd.get_object (), "op") == "forward") {
                     var query = make_command ("peer_services"); query.get_object ().set_string_member ("peer", text (cmd.get_object (), "peer"));
                     var response = yield core.request (query);
                     if (boolean (response.get_object (), "restricted", true)) cmd.get_object ().set_string_member ("service", service);

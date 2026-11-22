@@ -281,7 +281,7 @@ struct ForwardView: View {
                             let host = targetHost.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !host.isEmpty && host.count <= 253 && !host.contains(where: { $0.isWhitespace }) else { model.error = "Enter a destination hostname or IP address"; return }
                         }
-                        command = ["op": "forward_start", "peer": peer, "listen": "\(listenAddress):\(p)", "service": restricted ? service : destination]
+                        command = ["op": "forward", "peer": peer, "listen": "\(listenAddress):\(p)", "service": restricted ? service : destination]
                     }
                     if await model.run(command, success: "Forwarding started on \(listenerName) \(listenerHost):\(p)") { dismiss() }
                 }
