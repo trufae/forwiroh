@@ -1,5 +1,34 @@
 # Command errors
 
+## Versions and capability discovery
+
+`{"op":"api_info"}` returns `control_api_version`, `c_abi_version`, the separate
+application `version`, accepted canonical `commands`, static `aliases`, available
+`backends`, `features` and `max_packet_size`. Rust uses `api_info()` and Swift uses
+`apiInfo()`. C clients use the existing command entry point. C header version
+macros describe the headers, while this response describes the running core.
+
+Control API v1 accepts all its shipped names and aliases for its entire lifetime.
+`stop` is state-dependent and advertised through the `legacy_stop` feature rather
+than a static alias target. Removing an alias, renaming a required field or
+changing its meaning requires a new control API major and an explicit v1 adapter.
+Additive commands, optional response fields, capabilities and error codes are
+compatible within v1. Clients tolerate unknown response fields and codes; request
+and policy validation remain strict. A framing version is not a control version.
+
+Check the backend list as well as the command list: the socket cannot expose
+host packet I/O, while C/Rust providers advertise `vpn_packet`; Linux additionally
+advertises `vpn_tun`. Unknown capabilities mean unsupported, not permission to
+guess. Older cores may reject `api_info`; clients must explicitly fall back to
+their documented legacy subset or report an unsupported core. Do not infer
+capabilities from the application version string.
+
+The C ABI is v1: existing function signatures, ownership and return conventions
+remain fixed. New functions can be added. An incompatible ABI needs distinct
+symbols or a new library ABI; replacing an existing signature is not allowed.
+
+## Error responses
+
 The local control socket and C ABI use the same JSON response envelope. A success
 contains `data`, which can be an object, array, scalar or null:
 

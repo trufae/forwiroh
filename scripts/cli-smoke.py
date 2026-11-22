@@ -71,6 +71,9 @@ with tempfile.TemporaryDirectory() as tmp:
                 if time.monotonic()>deadline: raise RuntimeError('daemon startup timed out')
                 time.sleep(.02)
             assert rpc(root,{'op':'status'})['version']==version
+            api=rpc(root,{'op':'api_info'})
+            assert api['control_api_version']==1 and api['c_abi_version']==1
+            assert api['aliases']['forward_start']=='forward' and 'vpn_packet' not in api['backends']
             assert f'Version: {version}\n' in root.with_suffix('.log').read_text()
             fixtures=Path(__file__).resolve().parents[1]/'crates/forwiroh/tests/fixtures/control-errors.json'
             for fixture in json.loads(fixtures.read_text()):

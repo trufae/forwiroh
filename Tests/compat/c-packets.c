@@ -9,6 +9,10 @@ int main(int argc, char **argv) {
     char *error = NULL;
     ForwirohHandle *core = forwiroh_open_desktop(argv[1], "C consumer", &error);
     assert(core && !error);
+    char *info = forwiroh_command(core, "{\"op\":\"api_info\"}");
+    assert(info && strstr(info, "\"control_api_version\":1") && strstr(info, "\"c_abi_version\":1"));
+    assert(strstr(info, "vpn_packet"));
+    forwiroh_string_free(info);
     uint8_t *packet = (uint8_t *)malloc(FORWIROH_MAX_PACKET_SIZE);
     assert(packet);
     assert(forwiroh_receive_packet_ex(core, "missing", packet, 1280, &error) == -1);

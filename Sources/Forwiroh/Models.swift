@@ -53,6 +53,24 @@ public enum JSONValue: Codable, Sendable, Equatable {
     }
 }
 
+public struct APIInfo: Decodable, Sendable {
+    public let controlAPIVersion: UInt32
+    public let cABIVersion: UInt32
+    public let version: String
+    public let commands: [String]
+    public let aliases: [String: String]
+    public let backends: [String]
+    public let features: [String]
+    public let maxPacketSize: Int
+    public func supports(_ command: String) -> Bool {
+        commands.contains(command) || aliases[command] != nil || (command == "stop" && features.contains("legacy_stop"))
+    }
+    enum CodingKeys: String, CodingKey {
+        case version, commands, aliases, backends, features
+        case controlAPIVersion = "control_api_version", cABIVersion = "c_abi_version", maxPacketSize = "max_packet_size"
+    }
+}
+
 public struct Status: Decodable, Sendable {
     public let id: String
     public let name: String

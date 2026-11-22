@@ -5,6 +5,7 @@ use crate::{
     node::{Node, TransportMode},
     vpn::{self, VpnLink},
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -12,6 +13,29 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::sync::{Mutex as AsyncMutex, broadcast, mpsc};
+
+pub const CONTROL_API_VERSION: u32 = 1;
+pub const C_ABI_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[non_exhaustive]
+pub struct ApiInfo {
+    pub control_api_version: u32,
+    pub c_abi_version: u32,
+    pub version: String,
+    pub commands: Vec<String>,
+    pub aliases: std::collections::BTreeMap<String, String>,
+    pub backends: Vec<String>,
+    pub features: Vec<String>,
+    pub max_packet_size: usize,
+}
+impl ApiInfo {
+    pub fn supports(&self, command: &str) -> bool {
+        self.commands.iter().any(|c| c == command)
+            || self.aliases.contains_key(command)
+            || (command == "stop" && self.features.iter().any(|f| f == "legacy_stop"))
+    }
+}
 
 pub type Result<T> = std::result::Result<T, CommandError>;
 pub const MAX_PACKET_SIZE: usize = vpn::MAX_PACKET;
@@ -84,6 +108,10 @@ impl Forwiroh {
     pub fn id(&self) -> String {
         self.node.endpoint.id().to_string()
     }
+    pub async fn api_info(&self) -> Result<ApiInfo> {
+        let value = self.command(json!({"op":"api_info"})).await?;
+        serde_json::from_value(value).map_err(|e| public_error(e.into()))
+    }
     pub(crate) fn ensure_running(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.node.cancel.is_cancelled(),
@@ -97,6 +125,9 @@ impl Forwiroh {
     async fn execute(&self, input: Value) -> anyhow::Result<Value> {
         self.ensure_running()?;
         let (_, command) = Command::parse(input, |id| self.node.tunnel_kind(id))?;
+        if matches!(command, Command::ApiInfo) {
+            return Ok(json!(crate::control::api_info(true)));
+        }
         if let Command::VpnStart { peer, routes, tun } = &command
             && tun.is_empty()
         {

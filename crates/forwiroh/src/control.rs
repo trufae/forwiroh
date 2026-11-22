@@ -70,8 +70,8 @@ pub fn response(result: Result<Value>) -> Value {
     }
 }
 
-/// Op names still sent by released clients, mapped to their replacement.
-/// Delete an entry once no shipped client uses the old spelling.
+/// These aliases are part of control API v1 and must remain for its lifetime.
+/// Removing or retargeting a shipped alias requires a new control API major.
 const LEGACY_OPS: [(&str, &str); 17] = [
     ("invite", "invite_create"),
     ("cancel_invite", "invite_cancel"),
@@ -92,6 +92,65 @@ const LEGACY_OPS: [(&str, &str); 17] = [
     ("stop_vpn", "vpn_stop"),
 ];
 
+pub(crate) fn api_info(packet_io: bool) -> crate::ApiInfo {
+    let mut backends = Vec::new();
+    if packet_io {
+        backends.push("vpn_packet".into());
+    }
+    if cfg!(target_os = "linux") {
+        backends.push("vpn_tun".into());
+    }
+    let aliases = LEGACY_OPS
+        .iter()
+        .map(|(a, b)| ((*a).into(), (*b).into()))
+        .collect();
+    crate::ApiInfo {
+        control_api_version: crate::CONTROL_API_VERSION,
+        c_abi_version: crate::C_ABI_VERSION,
+        version: crate::VERSION.into(),
+        max_packet_size: crate::MAX_PACKET_SIZE,
+        commands: [
+            "api_info",
+            "status",
+            "network_change",
+            "invite_create",
+            "invite_cancel",
+            "pair",
+            "pair_cancel",
+            "peer_pending",
+            "pairing_policy",
+            "peer_approve",
+            "peer_rename",
+            "peer_revoke",
+            "peer_disconnect",
+            "peer_services",
+            "peer_policy",
+            "peer_allow",
+            "forward",
+            "forward_stop",
+            "reverse_start",
+            "reverse_stop",
+            "socks_start",
+            "socks_stop",
+            "vpn_start",
+            "vpn_stop",
+            "vpn_stats",
+            "tunnel_failure",
+        ]
+        .map(str::to_owned)
+        .into(),
+        aliases,
+        backends,
+        features: vec![
+            "error_codes".into(),
+            "idempotent_stop".into(),
+            "legacy_stop".into(),
+            "vpn_exit_userspace".into(),
+            "packet_errors".into(),
+        ],
+    }
+}
+
 /// Canonical spelling of a legacy op, if `op` is one.
 pub fn canonical_op(op: &str) -> Option<&'static str> {
     LEGACY_OPS
@@ -107,6 +166,7 @@ pub fn canonical_op(op: &str) -> Option<&'static str> {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[non_exhaustive]
 pub enum Command {
+    ApiInfo,
     Status,
     NetworkChange,
     /// Mint a single-use invitation URI.
@@ -238,6 +298,7 @@ impl Node {
             CommandError::new(ErrorCode::CoreStopped, "core stopped")
         );
         Ok(match command {
+            Command::ApiInfo => json!(api_info(false)),
             Command::Status => self.snapshot(),
             Command::NetworkChange => {
                 self.endpoint.network_change().await;

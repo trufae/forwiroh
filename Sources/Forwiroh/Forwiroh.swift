@@ -106,6 +106,7 @@ public final class Forwiroh: Sendable {
     }
 
     public func status() async throws -> Status { try await request("status").decode(Status.self) }
+    public func apiInfo() async throws -> APIInfo { try await request("api_info").decode(APIInfo.self) }
     public func invite() async throws -> Invitation { try await request("invite_create").decode(Invitation.self) }
     /// Permissions applied atomically when new peers pair in either direction.
     /// Set before inviting or pairing. Existing peers keep their saved policy.

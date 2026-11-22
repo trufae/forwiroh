@@ -7,6 +7,10 @@ extern "C" {
 #endif
 typedef struct Handle ForwirohHandle;
 #define FORWIROH_MAX_PACKET_SIZE 65535
+#define FORWIROH_C_ABI_VERSION 1
+#define FORWIROH_CONTROL_API_VERSION 1
+/* Query {"op":"api_info"} through command for runtime versions and capabilities.
+ * Adding C functions is compatible; changing existing signatures requires a new ABI. */
 /* Maximum packet length and minimum receive buffer capacity, not the VPN MTU. */
 size_t forwiroh_max_packet_size(void);
 /* Static version string. Do not free it. */

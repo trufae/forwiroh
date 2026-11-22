@@ -55,6 +55,12 @@ import Testing
     defer { try? FileManager.default.removeItem(at: path) }
     let core = try await Forwiroh.open(stateDirectory: path, name: "SwiftPM")
     let snapshot = try await core.status()
+    let api = try await core.apiInfo()
+    #expect(api.controlAPIVersion == 1)
+    #expect(api.cABIVersion == 1)
+    #expect(api.maxPacketSize == 65_535)
+    #expect(api.supports("forward_start") && api.supports("forward") && api.supports("stop"))
+    #expect(api.backends.contains("vpn_packet"))
     #expect(snapshot.name == "SwiftPM")
     #expect(snapshot.peers.isEmpty)
     let invitation = try await core.invite()

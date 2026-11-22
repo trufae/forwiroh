@@ -1,5 +1,7 @@
 mod api;
-pub use api::{Forwiroh, MAX_PACKET_SIZE, Options, Result};
+pub use api::{
+    ApiInfo, C_ABI_VERSION, CONTROL_API_VERSION, Forwiroh, MAX_PACKET_SIZE, Options, Result,
+};
 pub use control::{CommandError, ErrorCode};
 pub use node::TransportMode;
 #[doc(hidden)]

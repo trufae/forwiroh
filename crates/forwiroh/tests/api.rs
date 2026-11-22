@@ -14,6 +14,15 @@ async fn supported_facade_opens_commands_and_closes_without_transport_types() {
     let status = core.command(json!({"op":"status"})).await.unwrap();
     assert_eq!(status["id"], core.id());
     assert_eq!(status["name"], "Rust consumer");
+    let info = core.api_info().await.unwrap();
+    assert_eq!(info.control_api_version, forwiroh::CONTROL_API_VERSION);
+    assert_eq!(info.c_abi_version, forwiroh::C_ABI_VERSION);
+    assert_eq!(info.max_packet_size, forwiroh::MAX_PACKET_SIZE);
+    for command in ["forward", "forward_start", "pair", "pair_start", "stop"] {
+        assert!(info.supports(command));
+    }
+    assert!(!info.supports("unknown"));
+    assert!(info.backends.iter().any(|b| b == "vpn_packet"));
     assert_eq!(
         core.command(json!({"op":"stop", "id":"missing"}))
             .await
