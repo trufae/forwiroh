@@ -14,7 +14,10 @@ import Testing
 }
 
 @Test func sharedSuccessResponsesPreserveUnknownPolicyFields() throws {
-    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/control-success.json")
+    let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let packaged = tests.appendingPathComponent("Fixtures/control-success.json")
+    let fixture = FileManager.default.fileExists(atPath: packaged.path) ? packaged
+        : tests.deletingLastPathComponent().appendingPathComponent("crates/forwiroh/tests/fixtures/control-success.json")
     let values = try JSONDecoder().decode([String: JSONValue].self, from: Data(contentsOf: fixture))
     for key in ["status_legacy", "status_current"] { #expect(try values[key]!.decode(Status.self).id == "node") }
     #expect(try values["invitation"]!.decode(Invitation.self).id == "invitation")

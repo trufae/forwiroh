@@ -5,6 +5,7 @@
 
 int main(int argc, char **argv) {
     assert(argc == 2);
+    assert(FORWIROH_C_ABI_VERSION == 1 && FORWIROH_CONTROL_API_VERSION == 1);
     assert(forwiroh_max_packet_size() == FORWIROH_MAX_PACKET_SIZE);
     char *error = NULL;
     ForwirohHandle *core = forwiroh_open_desktop(argv[1], "C consumer", &error);

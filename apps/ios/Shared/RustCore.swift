@@ -11,7 +11,7 @@ struct ForwirohError: LocalizedError {
 final class RustCore: @unchecked Sendable {
     static let version = String(cString: forwiroh_version())
     static var cryptoInfo: [String: Any] {
-        let raw = forwiroh_crypto_info()
+        guard let raw = forwiroh_crypto_info() else { return [:] }
         defer { forwiroh_string_free(raw) }
         let data = Data(String(cString: raw).utf8)
         return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]

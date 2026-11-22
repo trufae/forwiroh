@@ -450,6 +450,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn control_v1_retains_frozen_capabilities_and_aliases() {
+        let baseline: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/control-v1.json")).unwrap();
+        for packet_io in [false, true] {
+            let info = serde_json::to_value(api_info(packet_io)).unwrap();
+            for key in ["control_api_version", "c_abi_version", "max_packet_size"] {
+                assert_eq!(info[key], baseline[key], "changed {key}");
+            }
+            for key in ["commands", "features"] {
+                for item in baseline[key].as_array().unwrap() {
+                    assert!(
+                        info[key].as_array().unwrap().contains(item),
+                        "removed {key}: {item}"
+                    );
+                }
+            }
+            for (alias, canonical) in baseline["aliases"].as_object().unwrap() {
+                assert_eq!(info["aliases"][alias], *canonical, "retargeted {alias}");
+                assert_eq!(canonical_op(alias), canonical.as_str());
+            }
+            assert_eq!(
+                info["backends"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("vpn_packet")),
+                packet_io
+            );
+        }
+    }
+
+    #[test]
     fn response_shapes_and_error_codes_are_compatible() {
         for data in [Value::Null, json!([]), json!({"id": "tunnel"})] {
             assert_eq!(response(Ok(data.clone())), json!({"data": data}));

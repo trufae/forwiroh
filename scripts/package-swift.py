@@ -159,6 +159,8 @@ def main():
             shutil.copy2(ROOT / name, package)
         for name in ("Sources", "Tests"):
             shutil.copytree(ROOT / name, package / name)
+        (package / "Tests/Fixtures").mkdir()
+        shutil.copy2(ROOT / "crates/forwiroh/tests/fixtures/control-success.json", package / "Tests/Fixtures")
         shutil.copy2(ROOT / "docs/swiftpm.md", package / "README.md")
         filename = f"Forwiroh-{version}-swiftpm.zip"
         sums.append(f"{archive(package, dist / filename, {'Artifacts': ROOT / 'Artifacts'})}  {filename}")

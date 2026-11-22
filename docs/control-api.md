@@ -26,6 +26,9 @@ capabilities from the application version string.
 The C ABI is v1: existing function signatures, ownership and return conventions
 remain fixed. New functions can be added. An incompatible ABI needs distinct
 symbols or a new library ABI; replacing an existing signature is not allowed.
+`Tests/compat/README.md` describes the frozen consumers and required CI checks.
+The canonical C declarations live in `crates/forwiroh/include/forwiroh.h`; iOS
+includes that file and packaged SDKs copy it.
 
 ## Resource identifiers
 
@@ -109,7 +112,7 @@ aliases, malformed JSON, field validation and unavailable backends.
 
 ## Successful responses and policy evolution
 
-`Tests/Fixtures/control-success.json` is shared by Rust and Swift. It freezes
+`crates/forwiroh/tests/fixtures/control-success.json` is shared by Rust and Swift. It freezes
 legacy and current status, invitation, pending pairing, VPN and event shapes.
 Optional additions and unknown event names are accepted. Missing legacy policy
 lists default to empty and `restricted` defaults to false, preserving v1 behavior.

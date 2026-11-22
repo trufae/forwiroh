@@ -4,7 +4,7 @@ use serde_json::Value;
 #[test]
 fn successful_response_fixtures_are_tolerant_and_keep_policy_extensions() {
     let fixtures: Value =
-        serde_json::from_str(include_str!("../../../Tests/Fixtures/control-success.json")).unwrap();
+        serde_json::from_str(include_str!("fixtures/control-success.json")).unwrap();
     for key in ["status_legacy", "status_current"] {
         let status: Status = serde_json::from_value(fixtures[key].clone()).unwrap();
         assert_eq!(status.id, "node");

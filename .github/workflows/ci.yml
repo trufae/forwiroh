@@ -26,7 +26,16 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo build --workspace --locked
+      - run: python3 scripts/check-api.py
+      - run: python3 scripts/test-c-api.py
       - run: python3 scripts/cli-smoke.py
+      - uses: swift-actions/setup-swift@v3
+        if: runner.os == 'macOS'
+        with:
+          swift-version: '6.2.4'
+      - name: Current and baseline Swift consumers
+        if: runner.os == 'macOS'
+        run: python3 scripts/test-swift-api.py
       - name: Public relay without direct UDP
         if: runner.os == 'Linux'
         run: cargo test -p forwiroh --test relay --locked -- --ignored
