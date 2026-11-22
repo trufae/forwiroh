@@ -20,6 +20,9 @@ machine-readable `error_code`:
 | `wrong_tunnel_kind` | A stop request names a live tunnel or VPN session of another kind. The resource remains active. |
 | `unsupported_backend` | The requested backend is unavailable on this host, such as a Linux TUN client on macOS. |
 | `core_stopped` | The core is shutting down or has stopped. |
+| `invalid_packet` | The packet buffer or IP header is invalid. |
+| `buffer_too_small` | A receive buffer is smaller than the published capacity; no packet was consumed. |
+| `session_not_found` | The packet session no longer exists. |
 | `operation_failed` | Another operation failure, including I/O, peer lookup, policy or pairing errors. |
 
 Codes come from typed errors rather than matching message text. Messages retain
@@ -43,6 +46,13 @@ when branching on the failure category.
 Rust callers can inspect `CommandError` through `anyhow::Error::downcast_ref` and
 read its `code()`. `ErrorCode` is non-exhaustive so callers can handle future
 categories. Socket and FFI responses are formatted by `control::response`.
+
+The C packet API requires `FORWIROH_MAX_PACKET_SIZE` (65535) receive bytes,
+independently of the VPN MTU. `forwiroh_max_packet_size()` reports that capacity.
+Legacy packet functions retain their integer returns. Their `_ex` equivalents
+also return owned error JSON through an optional `char **error`; success and
+closed-session EOF clear that pointer. Free non-null errors with `string_free`.
+Use one reader per packet session. A too-small buffer never consumes a packet.
 
 The shared requests in
 `crates/forwiroh/tests/fixtures/control-errors.json` run through both the FFI

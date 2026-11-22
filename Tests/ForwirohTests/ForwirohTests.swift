@@ -70,7 +70,12 @@ import Testing
     } catch let error as ForwirohError {
         #expect(error.code == "invalid_command")
     }
-    await #expect(throws: ForwirohError.self) { try await core.receivePacket(session: "missing") }
+    do {
+        _ = try await core.receivePacket(session: "missing")
+        Issue.record("An unknown packet session must fail")
+    } catch let error as ForwirohError {
+        #expect(error.code == "session_not_found")
+    }
     let reader = Task { for await _ in core.events {} }
     await withTaskGroup(of: Void.self) { group in
         for _ in 0..<8 { group.addTask { _ = try? await core.status() } }

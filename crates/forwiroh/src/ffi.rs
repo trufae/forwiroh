@@ -197,6 +197,31 @@ pub unsafe extern "C" fn forwiroh_next_event(handle: *mut Handle) -> *mut c_char
         }
     })
 }
+/// Maximum packet length and minimum receive buffer capacity, independent of MTU.
+#[unsafe(no_mangle)]
+pub extern "C" fn forwiroh_max_packet_size() -> usize {
+    crate::vpn::MAX_PACKET
+}
+
+unsafe fn packet_reply(result: Result<i32>, error: *mut *mut c_char) -> i32 {
+    if !error.is_null() {
+        unsafe {
+            *error = std::ptr::null_mut();
+        }
+    }
+    match result {
+        Ok(value) => value,
+        Err(failure) => {
+            if !error.is_null() {
+                unsafe {
+                    *error = reply(Err(failure));
+                }
+            }
+            -1
+        }
+    }
+}
+
 /// # Safety
 /// Handle, session C string and packet bytes must remain valid during this call.
 #[unsafe(no_mangle)]
@@ -206,21 +231,46 @@ pub unsafe extern "C" fn forwiroh_send_packet(
     bytes: *const u8,
     len: usize,
 ) -> i32 {
-    let result = (|| -> Result<()> {
+    unsafe { forwiroh_send_packet_ex(handle, session, bytes, len, std::ptr::null_mut()) }
+}
+
+/// Send a packet, returning owned command-style error JSON on failure.
+/// # Safety
+/// Inputs must be valid for this call; error must be NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn forwiroh_send_packet_ex(
+    handle: *mut Handle,
+    session: *const c_char,
+    bytes: *const u8,
+    len: usize,
+    error: *mut *mut c_char,
+) -> i32 {
+    let result = (|| -> Result<i32> {
         let h = unsafe { handle.as_ref() }.context("null handle")?;
         ensure!(
-            !bytes.is_null() && len <= crate::vpn::MAX_PACKET,
-            "invalid packet"
+            !h.node.cancel.is_cancelled(),
+            CommandError::new(ErrorCode::CoreStopped, "core stopped")
         );
-        h.node.send_packet(unsafe { text(session)? }, unsafe {
-            std::slice::from_raw_parts(bytes, len)
-        })
+        ensure!(
+            !bytes.is_null() && len > 0 && len <= crate::vpn::MAX_PACKET,
+            CommandError::new(ErrorCode::InvalidPacket, "invalid packet")
+        );
+        let packet = unsafe { std::slice::from_raw_parts(bytes, len) };
+        crate::vpn::validate_packet(packet).map_err(|e| ErrorCode::InvalidPacket.context(e))?;
+        let id = unsafe { text(session)? };
+        ensure!(
+            h.node.vpn.lock().unwrap().contains_key(id),
+            CommandError::new(ErrorCode::SessionNotFound, "VPN session stopped")
+        );
+        h.node.send_packet(id, packet)?;
+        Ok(0)
     })();
-    if result.is_ok() { 0 } else { -1 }
+    unsafe { packet_reply(result, error) }
 }
+
 /// # Safety
-/// Buffer must hold capacity bytes and capacity must be at least MTU. Blocks until
-/// a packet or shutdown. Returns packet length, 0 for closed session, -1 on error.
+/// Buffer must hold capacity bytes; capacity must be at least MAX_PACKET (65535).
+/// Blocks until a packet or shutdown. Returns length, 0 for closed, -1 on error.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn forwiroh_receive_packet(
     handle: *mut Handle,
@@ -228,20 +278,32 @@ pub unsafe extern "C" fn forwiroh_receive_packet(
     buffer: *mut u8,
     capacity: usize,
 ) -> i32 {
+    unsafe { forwiroh_receive_packet_ex(handle, session, buffer, capacity, std::ptr::null_mut()) }
+}
+
+/// Receive a packet, returning owned command-style error JSON on failure.
+/// # Safety
+/// Inputs must be valid for this call; error must be NULL or writable. Buffer
+/// requires MAX_PACKET bytes. One consumer may read each session at a time.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn forwiroh_receive_packet_ex(
+    handle: *mut Handle,
+    session: *const c_char,
+    buffer: *mut u8,
+    capacity: usize,
+    error: *mut *mut c_char,
+) -> i32 {
     let result = (|| -> Result<i32> {
         let h = unsafe { handle.as_ref() }.context("null handle")?;
         ensure!(
             !buffer.is_null() && capacity >= crate::vpn::MAX_PACKET,
-            "buffer too small"
+            CommandError::new(ErrorCode::BufferTooSmall, "buffer too small")
         );
         let id = unsafe { text(session)? };
-        let reader = h
-            .packets
-            .lock()
-            .unwrap()
-            .get(id)
-            .cloned()
-            .context("unknown VPN session")?;
+        let reader =
+            h.packets.lock().unwrap().get(id).cloned().ok_or_else(|| {
+                CommandError::new(ErrorCode::SessionNotFound, "unknown VPN session")
+            })?;
         let packet = h.runtime.block_on(async {
             let mut rx = reader.lock().await;
             tokio::select! { _ = h.node.cancel.cancelled()=>None, p = rx.recv()=>p }
@@ -259,7 +321,7 @@ pub unsafe extern "C" fn forwiroh_receive_packet(
             }
         }
     })();
-    result.unwrap_or(-1)
+    unsafe { packet_reply(result, error) }
 }
 /// # Safety
 /// Handle must remain live; wakes event/packet calls. May be called once.
@@ -326,6 +388,63 @@ mod tests {
             forwiroh_string_free(raw);
             reply
         }
+    }
+
+    #[test]
+    fn packet_capacity_errors_do_not_consume_data_and_closed_is_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut handle = local_handle(dir.path());
+        let (sender, receiver) = mpsc::channel(1);
+        sender.try_send(vec![7; crate::vpn::MTU]).unwrap();
+        handle
+            .packets
+            .lock()
+            .unwrap()
+            .insert("session".into(), Arc::new(AsyncMutex::new(receiver)));
+        let id = CString::new("session").unwrap();
+        let mut buffer = vec![0; forwiroh_max_packet_size()];
+        let mut error = std::ptr::null_mut();
+        unsafe {
+            assert_eq!(
+                forwiroh_receive_packet_ex(
+                    &mut handle,
+                    id.as_ptr(),
+                    buffer.as_mut_ptr(),
+                    crate::vpn::MTU,
+                    &mut error
+                ),
+                -1
+            );
+            let failure: Value =
+                serde_json::from_str(CStr::from_ptr(error).to_str().unwrap()).unwrap();
+            assert_eq!(failure["error_code"], "buffer_too_small");
+            forwiroh_string_free(error);
+            assert_eq!(
+                forwiroh_receive_packet_ex(
+                    &mut handle,
+                    id.as_ptr(),
+                    buffer.as_mut_ptr(),
+                    buffer.len(),
+                    &mut error
+                ),
+                crate::vpn::MTU as i32
+            );
+            assert!(error.is_null());
+            assert_eq!(&buffer[..crate::vpn::MTU], vec![7; crate::vpn::MTU]);
+            drop(sender);
+            assert_eq!(
+                forwiroh_receive_packet_ex(
+                    &mut handle,
+                    id.as_ptr(),
+                    buffer.as_mut_ptr(),
+                    buffer.len(),
+                    &mut error
+                ),
+                0
+            );
+            assert!(error.is_null());
+        }
+        handle.runtime.block_on(handle.node.shutdown());
     }
 
     #[test]

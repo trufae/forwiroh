@@ -14,6 +14,9 @@ pub enum ErrorCode {
     WrongTunnelKind,
     UnsupportedBackend,
     CoreStopped,
+    InvalidPacket,
+    BufferTooSmall,
+    SessionNotFound,
     OperationFailed,
 }
 
@@ -379,6 +382,9 @@ mod tests {
             (ErrorCode::WrongTunnelKind, "wrong_tunnel_kind"),
             (ErrorCode::UnsupportedBackend, "unsupported_backend"),
             (ErrorCode::CoreStopped, "core_stopped"),
+            (ErrorCode::InvalidPacket, "invalid_packet"),
+            (ErrorCode::BufferTooSmall, "buffer_too_small"),
+            (ErrorCode::SessionNotFound, "session_not_found"),
             (ErrorCode::OperationFailed, "operation_failed"),
         ] {
             let error: anyhow::Error = CommandError::new(code, "unchanged text").into();

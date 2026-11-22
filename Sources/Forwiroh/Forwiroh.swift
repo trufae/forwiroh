@@ -170,13 +170,14 @@ public final class Forwiroh: Sendable {
     public func vpnStats(id: String) async throws -> JSONValue { try await request("vpn_stats", ["id": .string(id)]) }
     public func sendPacket(session: String, data: Data) async throws {
         try validateCString(session)
-        guard !data.isEmpty, data.count <= 65_535 else { throw ForwirohError("Invalid packet size") }
+        guard !data.isEmpty, data.count <= forwiroh_max_packet_size() else { throw ForwirohError("Invalid packet size", code: "invalid_packet") }
         try await onWorker { [handle] in
             try handle.call { pointer in
+                var error: UnsafeMutablePointer<CChar>?
                 let result = session.withCString { session in
-                    data.withUnsafeBytes { forwiroh_send_packet(pointer, session, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+                        data.withUnsafeBytes { forwiroh_send_packet_ex(pointer, session, $0.bindMemory(to: UInt8.self).baseAddress, data.count, &error) }
                 }
-                guard result == 0 else { throw ForwirohError("Cannot send VPN packet") }
+                guard result == 0 else { throw packetError(error, fallback: "Cannot send VPN packet") }
             }
         }
     }
@@ -185,11 +186,12 @@ public final class Forwiroh: Sendable {
         try validateCString(session)
         return try await onWorker { [handle] in
             try handle.call { pointer in
-                var bytes = [UInt8](repeating: 0, count: 65_535)
+                var bytes = [UInt8](repeating: 0, count: forwiroh_max_packet_size())
+                var error: UnsafeMutablePointer<CChar>?
                 let count = session.withCString { session in
-                    bytes.withUnsafeMutableBufferPointer { forwiroh_receive_packet(pointer, session, $0.baseAddress, $0.count) }
+                    bytes.withUnsafeMutableBufferPointer { forwiroh_receive_packet_ex(pointer, session, $0.baseAddress, $0.count, &error) }
                 }
-                guard count >= 0 else { throw ForwirohError("Cannot receive VPN packet") }
+                guard count >= 0 else { throw packetError(error, fallback: "Cannot receive VPN packet") }
                 return count == 0 ? nil : Data(bytes.prefix(Int(count)))
             }
         }

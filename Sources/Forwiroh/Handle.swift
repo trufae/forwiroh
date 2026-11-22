@@ -80,3 +80,10 @@ func response(_ value: JSONValue) throws -> JSONValue {
     guard let data = value["data"] else { throw ForwirohError("Invalid core response") }
     return data
 }
+
+func packetError(_ raw: UnsafeMutablePointer<CChar>?, fallback: String) -> ForwirohError {
+    guard let raw, let value = try? ownedJSON(raw), let message = value["error"]?.string else {
+        return ForwirohError(fallback)
+    }
+    return ForwirohError(message, code: value["error_code"]?.string)
+}

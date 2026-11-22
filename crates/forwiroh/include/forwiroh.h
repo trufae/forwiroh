@@ -6,6 +6,9 @@
 extern "C" {
 #endif
 typedef struct Handle ForwirohHandle;
+#define FORWIROH_MAX_PACKET_SIZE 65535
+/* Maximum packet length and minimum receive buffer capacity, not the VPN MTU. */
+size_t forwiroh_max_packet_size(void);
 /* Static version string. Do not free it. */
 const char *forwiroh_version(void);
 /* Owned JSON strings: release with forwiroh_string_free. */
@@ -22,6 +25,13 @@ char *forwiroh_command(ForwirohHandle *, const char *json);
 char *forwiroh_next_event(ForwirohHandle *);
 int32_t forwiroh_send_packet(ForwirohHandle *, const char *session, const uint8_t *, size_t);
 int32_t forwiroh_receive_packet(ForwirohHandle *, const char *session, uint8_t *, size_t);
+/* Send returns 0/-1. Receive returns length, 0 for closed, or -1 on error.
+ * Receive requires FORWIROH_MAX_PACKET_SIZE bytes even if the MTU is smaller.
+ * The _ex variants clear *error on success/closed and return owned error JSON
+ * on failure. error may be NULL. Release error JSON with string_free.
+ * A too-small buffer does not consume a packet. Use one reader per session. */
+int32_t forwiroh_send_packet_ex(ForwirohHandle *, const char *session, const uint8_t *, size_t, char **error);
+int32_t forwiroh_receive_packet_ex(ForwirohHandle *, const char *session, uint8_t *, size_t, char **error);
 void forwiroh_string_free(char *);
 /* Shutdown wakes blocked calls. Join ALL callers before free. */
 void forwiroh_shutdown(ForwirohHandle *);
