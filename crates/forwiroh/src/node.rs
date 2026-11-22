@@ -989,10 +989,43 @@ impl Node {
         self.emit(json!({"event":"tunnels_changed"}));
     }
     pub fn tunnel_kind(&self, id: &str) -> Option<String> {
-        self.tunnels.lock().unwrap().get(id).map(|t| t.kind.clone())
+        let kind = self.tunnels.lock().unwrap().get(id).map(|t| t.kind.clone());
+        kind.or_else(|| {
+            self.vpn
+                .lock()
+                .unwrap()
+                .contains_key(id)
+                .then(|| "vpn".into())
+        })
     }
-    pub fn forward_stop(&self, id: &str) {
-        self.remove_tunnel(id);
+    pub(crate) fn stop_tunnel(&self, id: &str, kind: &str) -> Result<()> {
+        let tunnel = {
+            let mut tunnels = self.tunnels.lock().unwrap();
+            if let Some(tunnel) = tunnels.get(id) {
+                ensure!(
+                    tunnel.kind == kind,
+                    "tunnel {id} is {}, expected {kind}",
+                    tunnel.kind
+                );
+                tunnels.remove(id)
+            } else {
+                drop(tunnels);
+                ensure!(
+                    kind == "vpn" || !self.vpn.lock().unwrap().contains_key(id),
+                    "tunnel {id} is vpn, expected {kind}"
+                );
+                None
+            }
+        };
+        if let Some(tunnel) = tunnel {
+            tunnel.cancel.cancel();
+            self.emit(json!({"event":"tunnels_changed"}));
+        }
+        Ok(())
+    }
+    /// Stop a forward. Missing IDs succeed; IDs belonging to another kind fail.
+    pub fn forward_stop(&self, id: &str) -> Result<()> {
+        self.stop_tunnel(id, "forward")
     }
     pub(crate) fn tunnel_failure(&self, id: &str) -> Value {
         self.tunnels
@@ -1067,8 +1100,9 @@ impl Node {
         });
         Ok(id)
     }
-    pub fn reverse_stop(&self, id: &str) {
-        self.remove_tunnel(id);
+    /// Stop a reverse forward. Missing IDs succeed; another kind is an error.
+    pub fn reverse_stop(&self, id: &str) -> Result<()> {
+        self.stop_tunnel(id, "reverse")
     }
     /// Start a reverse forward; `reverse_stop` closes its listener and streams.
     pub async fn reverse_start(

@@ -153,10 +153,10 @@ public final class Forwiroh: Sendable {
     public func socks(peer: String, listen: String = "127.0.0.1:1080") async throws -> String {
         try await identifier("socks_start", ["peer": .string(peer), "listen": .string(listen)])
     }
-    /// The command API stops per kind; look the kind up rather than guess.
+    /// Stop a tunnel by its status ID. Already-stopped tunnels succeed.
     public func stopTunnel(id: String) async throws {
         guard let kind = try await status().tunnels.first(where: { $0.id == id })?.kind else {
-            throw ForwirohError("Unknown tunnel")
+            return
         }
         _ = try await request("\(kind)_stop", ["id": .string(id)])
     }

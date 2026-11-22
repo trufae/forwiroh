@@ -227,7 +227,7 @@ async fn paired_access_accepts_selected_tcp_destinations_and_reverse_ports_and_l
         })
         .await
         .unwrap();
-        phone.forward_stop(&id);
+        phone.forward_stop(&id).unwrap();
     }
     let reserve = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = reserve.local_addr().unwrap().port();
@@ -245,7 +245,7 @@ async fn paired_access_accepts_selected_tcp_destinations_and_reverse_ports_and_l
     })
     .await
     .unwrap();
-    phone.reverse_stop(&id);
+    phone.reverse_stop(&id).unwrap();
     home.set_policy(
         &phone.endpoint.id().to_string(),
         Policy {
@@ -293,7 +293,7 @@ async fn forward_can_listen_on_all_interfaces_and_stops_listener() {
     let listen = local_listener(&phone, id);
     assert!(listen.ip().is_unspecified());
     roundtrip(SocketAddr::from(([127, 0, 0, 1], listen.port())), 43).await;
-    phone.forward_stop(id);
+    phone.forward_stop(id).unwrap();
     timeout(Duration::from_secs(5), async {
         loop {
             if TcpListener::bind(listen).await.is_ok() {
@@ -427,7 +427,7 @@ async fn concurrent_tcp_half_close_policy_and_revoke() {
     let result = timeout(Duration::from_secs(5), live.read_to_end(&mut buf)).await;
     assert!(result.is_ok(), "revocation must terminate active streams");
     assert!(phone.services(&home_id).await.is_err());
-    phone.forward_stop(&tunnel);
+    phone.forward_stop(&tunnel).unwrap();
     phone.shutdown().await;
     home.shutdown().await;
     echo.abort();
@@ -458,7 +458,7 @@ async fn reverse_requires_explicit_port_and_stops_listener() {
         .unwrap();
     let id = phone.reverse_start(&home_id, port, target).await.unwrap();
     roundtrip(SocketAddr::from(([127, 0, 0, 1], port)), 55).await;
-    phone.reverse_stop(&id);
+    phone.reverse_stop(&id).unwrap();
     timeout(Duration::from_secs(5), async {
         loop {
             if TcpListener::bind(("127.0.0.1", port)).await.is_ok() {

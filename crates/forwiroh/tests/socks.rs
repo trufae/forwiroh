@@ -72,7 +72,7 @@ async fn socks_connect_remote_dns_and_destination_denial() {
             .await
             .is_err()
     );
-    phone.socks_stop(&id);
+    phone.socks_stop(&id).unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if tokio::net::TcpListener::bind(listen).await.is_ok() {

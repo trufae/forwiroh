@@ -149,8 +149,11 @@ async fn serve(path: &Path, name: &str, mode: TransportMode) -> Result<()> {
                 let mut socket = accepted?; let node = node.clone();
                 clients.spawn(async move {
                     let input: Value = tokio::time::timeout(wire::SETUP_TIMEOUT,wire::read_limit(&mut socket, wire::MAX_CONTROL)).await??;
-                    let (_, command) = Command::parse(input, |id| node.tunnel_kind(id))?;
-                    let result = match node.command(command).await { Ok(v) => json!({"data":v}), Err(e) => json!({"error":e.to_string()}) };
+                    let result = match Command::parse(input, |id| node.tunnel_kind(id)) {
+                        Ok((_, command)) => node.command(command).await,
+                        Err(error) => Err(error),
+                    };
+                    let result = match result { Ok(v) => json!({"data":v}), Err(e) => json!({"error":e.to_string()}) };
                     wire::write_limit(&mut socket,&result, wire::MAX_CONTROL).await?; Ok::<_,anyhow::Error>(())
                 });
             }
@@ -363,11 +366,14 @@ async fn main() -> Result<()> {
         // The command API stops a tunnel by kind; the CLI keeps one verb and looks it up.
         Cmd::Stop { id } => {
             let status = rpc(&cli.state, &Command::Status).await?;
-            let kind = status["tunnels"]
+            let Some(kind) = status["tunnels"]
                 .as_array()
                 .and_then(|tunnels| tunnels.iter().find(|t| t["id"] == id.as_str()))
                 .and_then(|tunnel| tunnel["kind"].as_str())
-                .with_context(|| format!("unknown tunnel {id}"))?;
+            else {
+                println!("null");
+                return Ok(());
+            };
             match kind {
                 "forward" => Command::ForwardStop { id },
                 "reverse" => Command::ReverseStop { id },

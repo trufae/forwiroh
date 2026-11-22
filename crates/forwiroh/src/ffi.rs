@@ -168,8 +168,13 @@ pub unsafe extern "C" fn forwiroh_command(
                 h.packets.lock().unwrap().insert(id.clone(),Arc::new(AsyncMutex::new(packets)));
                 return Ok(json!({"id":id,"local_ip":local_ip,"remote_ip":remote_ip,"local_ipv6":crate::vpn::ipv6(local_ip),"remote_ipv6":crate::vpn::ipv6(remote_ip),"forward_ip":crate::vpn::FORWARD_IP,"routes":routes,"mtu":crate::vpn::MTU}));
             }
-            if let Command::VpnStop { id } = &command { h.packets.lock().unwrap().remove(id); }
-            tokio::select! { r = h.node.command(command) => r, _ = h.node.cancel.cancelled() => anyhow::bail!("core stopped") }
+            let stopping_vpn = matches!(command, Command::VpnStop { .. } | Command::LegacyStop { .. });
+            let result = tokio::select! { r = h.node.command(command) => r, _ = h.node.cancel.cancelled() => anyhow::bail!("core stopped") }?;
+            if stopping_vpn {
+                let sessions = h.node.vpn.lock().unwrap();
+                h.packets.lock().unwrap().retain(|id, _| sessions.contains_key(id));
+            }
+            Ok(result)
         })
     })())
 }
@@ -387,10 +392,107 @@ mod tests {
                 assert!(handle.packets.lock().unwrap().contains_key(id));
                 assert_eq!(reply["data"]["mtu"], crate::vpn::MTU);
                 assert!(reply["data"]["local_ip"].is_string());
+                let status = handle.node.snapshot();
+                let tunnel = status["tunnels"][0]["id"].as_str().unwrap();
+                for wrong_id in [id, tunnel] {
+                    for wrong_op in ["forward_stop", "reverse_stop", "socks_stop"] {
+                        let error = command(&mut handle, json!({"op": wrong_op, "id": wrong_id}));
+                        assert!(error["error"].as_str().unwrap().contains("is vpn"));
+                        assert!(handle.packets.lock().unwrap().contains_key(id));
+                        assert!(handle.node.vpn_stats(id).is_object());
+                    }
+                }
+                // Exercise both accepted VPN IDs and the legacy generic stop.
+                let stop_id = if tun.is_some() { tunnel } else { id };
+                let stop_op = if op == "vpn" { "stop" } else { "vpn_stop" };
+                assert_eq!(
+                    command(&mut handle, json!({"op": stop_op, "id": stop_id})),
+                    json!({"data": null})
+                );
+                assert!(handle.packets.lock().unwrap().is_empty());
+                assert!(handle.node.vpn_stats(id).is_null());
+                assert!(
+                    handle.node.snapshot()["tunnels"]
+                        .as_array()
+                        .unwrap()
+                        .is_empty()
+                );
+                for stopped_id in [id, tunnel] {
+                    assert_eq!(
+                        command(&mut handle, json!({"op": stop_op, "id": stopped_id})),
+                        json!({"data": null})
+                    );
+                }
                 handle.runtime.block_on(handle.node.shutdown());
                 handle.runtime.block_on(server.shutdown());
             }
         }
+    }
+
+    #[test]
+    fn stop_commands_validate_kinds_and_are_idempotent() {
+        type Stop = fn(&Node, &str) -> Result<()>;
+        let stops: [(&str, Stop); 4] = [
+            ("forward", Node::forward_stop),
+            ("reverse", Node::reverse_stop),
+            ("socks", Node::socks_stop),
+            ("vpn", Node::vpn_stop),
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        let mut handle = local_handle(dir.path());
+        for (kind, stop) in stops {
+            for op in [format!("{kind}_stop"), "stop".into()] {
+                let (id, cancelled) = handle
+                    .node
+                    .add_tunnel("peer".into(), kind, "test".into())
+                    .unwrap();
+                for (other, other_stop) in stops {
+                    if other == kind {
+                        continue;
+                    }
+                    assert!(
+                        other_stop(&handle.node, &id)
+                            .unwrap_err()
+                            .to_string()
+                            .contains(&format!("is {kind}"))
+                    );
+                    let reply = command(
+                        &mut handle,
+                        json!({"op": format!("{other}_stop"), "id": id}),
+                    );
+                    assert!(
+                        reply["error"]
+                            .as_str()
+                            .unwrap()
+                            .contains(&format!("is {kind}"))
+                    );
+                    assert!(!cancelled.is_cancelled());
+                    assert_eq!(handle.node.tunnel_kind(&id).as_deref(), Some(kind));
+                }
+                for _ in 0..2 {
+                    assert_eq!(
+                        command(&mut handle, json!({"op": op, "id": id})),
+                        json!({"data": null})
+                    );
+                }
+                assert!(cancelled.is_cancelled());
+                assert!(handle.node.tunnel_kind(&id).is_none());
+                stop(&handle.node, &id).unwrap();
+            }
+            stop(&handle.node, "missing").unwrap();
+            assert_eq!(
+                command(
+                    &mut handle,
+                    json!({"op": format!("{kind}_stop"), "id": "missing"})
+                ),
+                json!({"data": null})
+            );
+        }
+        assert_eq!(
+            command(&mut handle, json!({"op": "stop", "id": "missing"})),
+            json!({"data": null})
+        );
+        handle.runtime.block_on(handle.node.shutdown());
     }
 
     #[test]

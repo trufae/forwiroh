@@ -386,7 +386,7 @@ impl Node {
             self.tasks.spawn(async move {
                 if let Err(e) = n.socket_exit(&id, local_rx, FORWARD_IP, true, stop).await {
                     n.emit(json!({"event":"vpn_error","error":e.to_string()}));
-                    n.vpn_stop(&id);
+                    let _ = n.vpn_stop(&id);
                 }
             });
         }
@@ -405,15 +405,24 @@ impl Node {
             packets,
         })
     }
-    pub fn vpn_stop(&self, id: &str) {
-        let mut sessions = self.vpn.lock().unwrap();
-        let tag = sessions
-            .iter()
-            .find(|(tag, s)| tag.as_str() == id || s.tunnel.as_deref() == Some(id))
-            .map(|(tag, _)| tag.clone());
-        if let Some(s) = tag.and_then(|tag| sessions.remove(&tag)) {
-            s.cancel.cancel();
+    /// Stop a VPN by session or tunnel ID. Missing IDs succeed; another kind fails.
+    pub fn vpn_stop(&self, id: &str) -> Result<()> {
+        self.stop_tunnel(id, "vpn")?;
+        let session = {
+            let mut sessions = self.vpn.lock().unwrap();
+            let tag = sessions
+                .iter()
+                .find(|(tag, s)| tag.as_str() == id || s.tunnel.as_deref() == Some(id))
+                .map(|(tag, _)| tag.clone());
+            tag.and_then(|tag| sessions.remove(&tag))
+        };
+        if let Some(session) = session {
+            session.cancel.cancel();
+            if let Some(tunnel) = session.tunnel {
+                self.stop_tunnel(&tunnel, "vpn")?;
+            }
         }
+        Ok(())
     }
     fn check_transport_routes(&self, routes: &[IpNet], conn: &Connection) -> Result<()> {
         // Conservative: reject any route overlapping this device's direct addresses.
@@ -528,7 +537,7 @@ impl Node {
             let mut recv = recv; let mut byte = [0];
             tokio::select! { r = backend => r, _ = recv.read(&mut byte) => Ok(()), _ = conn.closed() => Ok(()), _ = cancel.cancelled() => Ok(()) }
         }.await;
-        self.vpn_stop(&session);
+        self.vpn_stop(&session)?;
         self.emit(json!({"event":"vpn_stopped","peer":conn.remote_id().to_string()}));
         let _ = send.finish();
         result
@@ -566,7 +575,7 @@ impl Node {
         let id = link.id.clone();
         self.tasks.spawn(async move {
             let result = n.pump_tun(&link.id, device, link.packets).await;
-            n.vpn_stop(&link.id);
+            let _ = n.vpn_stop(&link.id);
             if let Err(e) = result {
                 n.emit(json!({"event":"vpn_error","error":e.to_string()}));
             }
@@ -734,7 +743,7 @@ mod tests {
                 .await
                 .is_err()
         );
-        client.vpn_stop(&id);
+        client.vpn_stop(&id).unwrap();
         assert!(client.send_packet(&id, &p).is_err());
         client.shutdown().await;
         server.shutdown().await;

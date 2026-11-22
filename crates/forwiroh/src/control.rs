@@ -109,6 +109,11 @@ pub enum Command {
     SocksStop {
         id: String,
     },
+    /// Compatibility for released clients; new clients use the kind-specific stop.
+    #[serde(rename = "stop")]
+    LegacyStop {
+        id: String,
+    },
     /// A nonempty `tun` selects the Linux TUN backend on every command transport.
     /// Without a TUN, the FFI exposes packet I/O for the host's VPN provider.
     VpnStart {
@@ -131,7 +136,8 @@ pub enum Command {
 impl Command {
     /// Parse one command, rewriting legacy `op` names. `stop` was the only op that
     /// named no noun, so it is resolved to the matching `<kind>_stop` through the
-    /// tunnel registry. Returns the canonical op so transports can branch on it.
+    /// tunnel registry when it exists. Missing legacy stops remain successful no-ops.
+    /// Returns the canonical op, or `stop` when its tunnel is already absent.
     pub fn parse(
         mut value: Value,
         kind_of: impl FnOnce(&str) -> Option<String>,
@@ -140,15 +146,13 @@ impl Command {
         let op = match legacy {
             "stop" => {
                 let id = value["id"].as_str().context("missing id")?;
-                match kind_of(id)
-                    .with_context(|| format!("unknown tunnel {id}"))?
-                    .as_str()
-                {
-                    "forward" => "forward_stop",
-                    "reverse" => "reverse_stop",
-                    "socks" => "socks_stop",
-                    "vpn" => "vpn_stop",
-                    kind => anyhow::bail!("cannot stop a {kind} tunnel"),
+                match kind_of(id).as_deref() {
+                    Some("forward") => "forward_stop",
+                    Some("reverse") => "reverse_stop",
+                    Some("socks") => "socks_stop",
+                    Some("vpn") => "vpn_stop",
+                    Some(kind) => anyhow::bail!("cannot stop a {kind} tunnel"),
+                    None => "stop",
                 }
             }
             legacy => canonical_op(legacy).unwrap_or(legacy),
@@ -233,15 +237,25 @@ impl Node {
                 json!({"id":self.socks_start(&peer,listen).await?})
             }
             Command::ForwardStop { id } => {
-                self.forward_stop(&id);
+                self.forward_stop(&id)?;
                 Value::Null
             }
             Command::ReverseStop { id } => {
-                self.reverse_stop(&id);
+                self.reverse_stop(&id)?;
                 Value::Null
             }
             Command::SocksStop { id } => {
-                self.socks_stop(&id);
+                self.socks_stop(&id)?;
+                Value::Null
+            }
+            Command::LegacyStop { id } => {
+                if let Some(kind) = self.tunnel_kind(&id) {
+                    if kind == "vpn" {
+                        self.vpn_stop(&id)?;
+                    } else {
+                        self.stop_tunnel(&id, &kind)?;
+                    }
+                }
                 Value::Null
             }
             Command::VpnStart { peer, routes, tun } => {
@@ -258,7 +272,7 @@ impl Node {
                 }
             }
             Command::VpnStop { id } => {
-                self.vpn_stop(&id);
+                self.vpn_stop(&id)?;
                 Value::Null
             }
             Command::VpnStats { id } => self.vpn_stats(&id),
@@ -350,7 +364,11 @@ mod tests {
             parse(json!({"op": "stop", "id": "tunnel"})).unwrap().0,
             "socks_stop"
         );
-        assert!(parse(json!({"op": "stop", "id": "missing"})).is_err());
+        let (op, command) = parse(json!({"op": "stop", "id": "missing"})).unwrap();
+        assert_eq!(op, "stop");
+        assert!(matches!(command, Command::LegacyStop { id } if id == "missing"));
+        assert!(parse(json!({"op": "stop"})).is_err());
+        assert!(parse(json!({"op": "stop", "id": "missing", "extra": true})).is_err());
     }
 
     #[test]
