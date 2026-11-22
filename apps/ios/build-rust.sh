@@ -15,6 +15,8 @@ case "$PLATFORM_NAME:$arch" in
   iphonesimulator:x86_64) target=x86_64-apple-ios ;;
   *) echo "Unsupported Rust Apple target: $PLATFORM_NAME:$arch" >&2; exit 1 ;;
 esac
+# Targets belong to the active toolchain, so a toolchain update needs a new copy.
+rustup target add "$target"
 # Xcode's SDKROOT is correct for C dependencies (ring) on this destination.
 SDKROOT="${SDKROOT:-$(xcrun --sdk "$PLATFORM_NAME" --show-sdk-path)}"
 export SDKROOT

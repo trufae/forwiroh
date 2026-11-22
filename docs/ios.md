@@ -1,16 +1,17 @@
 # Native iOS build and device validation
 
-Requirements: Xcode with Swift 6 and an iOS SDK, Rust, and the Apple Rust targets:
+Requirements: Xcode with Swift 6 and an iOS SDK, and Rust installed with rustup:
 
 ```sh
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 open apps/ios/Forwiroh.xcodeproj
 ```
 
 The checked-in project has two targets: Forwiroh (SwiftUI) and PacketTunnel
 (NetworkExtension), both in Swift 6 language mode. A build phase compiles the
-shared Rust static library for the selected SDK/architecture. No Swift copy of
-the networking protocol exists.
+shared Rust static library for the selected SDK/architecture. The build script
+installs the required Apple Rust target for the project's pinned toolchain if
+needed, so the first build for each target/toolchain requires internet access.
+No Swift copy of the networking protocol exists.
 The project can be regenerated deterministically with
 `python3 scripts/generate-xcode.py`; change the generator when changing targets
 or build settings.
