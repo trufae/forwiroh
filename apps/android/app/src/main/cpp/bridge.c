@@ -39,7 +39,6 @@ static jbyteArray owned(JNIEnv *env, char *value) {
     forwiroh_string_free(value);
     return result;
 }
-extern void forwiroh_android_init(JNIEnv *env, jobject context);
 JNIEXPORT void JNICALL JNI(initializeNative)(JNIEnv *env, jclass klass, jobject context) {
     UNUSED(); forwiroh_android_init(env, context);
 }
@@ -94,7 +93,7 @@ JNIEXPORT jbyteArray JNICALL JNI(receiveNative)(JNIEnv *env, jclass klass, jlong
     UNUSED();
     char *id = text(env, session);
     if (!id) return NULL;
-    uint8_t data[1100];
+    uint8_t data[FORWIROH_MAX_PACKET_SIZE];
     int n = forwiroh_receive_packet(HANDLE(handle), id, data, sizeof(data));
     free(id);
     if (n <= 0) return NULL;
